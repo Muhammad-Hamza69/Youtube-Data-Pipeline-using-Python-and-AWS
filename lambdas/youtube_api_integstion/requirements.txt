@@ -1,0 +1,3 @@
+# boto3 already ships in the public.ecr.aws/lambda/python:3.11 base image.
+# This file exists so the Dockerfile has something to COPY + pip install;
+# pin only if you need a newer boto3 than the base image provides.

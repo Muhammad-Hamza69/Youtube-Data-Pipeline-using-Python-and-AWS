@@ -45,7 +45,14 @@ This pattern is called **Medallion Architecture (Bronze → Silver → Gold)** a
 
 ## 2. Architecture Overview
 
-![alt text](./youtube-data-piepline-aws-s3-lambda-glue-athena-stepfunction/YouTube%20Trending%20Data%20Pipeline.png)
+![alt text](./docs/architecture.png)
+
+**DevOps additions on top of the AWS data pipeline above:**
+
+- **Terraform** (`terraform/`) provisions every AWS resource shown here — S3, Lambda, Glue, Step Functions, EventBridge, SNS, Athena, IAM, ECR, Secrets Manager — plus a dedicated **EKS** cluster that hosts a read-only pipeline monitoring dashboard. See `DEPLOYMENT.md` for the one-time setup required before this can run.
+- **Docker** packages each Lambda (`lambdas/*/Dockerfile`, `data_quality/Dockerfile`) as a container image; Lambda functions run as `package_type = "Image"`, pulling from **Amazon ECR**.
+- **GitHub Actions** (`.github/workflows/`) builds and pushes those images, runs `terraform apply` behind a manual-approval gate, and rolls out the dashboard to EKS on every push to `main`; `terraform-plan.yml` posts a plan preview on pull requests.
+- **Kubernetes** (`k8s/`): the dashboard (`dashboard/`, a small Flask app) runs as a `Deployment` + `NodePort Service` in EKS, authenticated to AWS via IRSA, showing recent Step Functions executions, data-quality results, and Gold table row counts.
 
 **AWS Services Used:**
 

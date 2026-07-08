@@ -10,10 +10,10 @@
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::yt-pipeline-bronze-us-east-1-914216784354/*",
-                "arn:aws:s3:::yt-pipeline-bronze-us-east-1-914216784354",
-                "arn:aws:s3:::yt-pipeline-silver-us-east-1-914216784354/*",
-                "arn:aws:s3:::yt-pipeline-silver-us-east-1-914216784354"
+                "arn:aws:s3:::yt-pipeline-bronze-${region}-${account_id}/*",
+                "arn:aws:s3:::yt-pipeline-bronze-${region}-${account_id}",
+                "arn:aws:s3:::yt-pipeline-silver-${region}-${account_id}/*",
+                "arn:aws:s3:::yt-pipeline-silver-${region}-${account_id}"
             ]
         },
         {
@@ -34,7 +34,7 @@
             "Sid": "SNSAccess",
             "Effect": "Allow",
             "Action": "sns:Publish",
-            "Resource": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts"
+            "Resource": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts"
         },
         {
             "Sid": "AthenaAccess",
@@ -45,6 +45,12 @@
                 "athena:GetQueryResults"
             ],
             "Resource": "*"
+        },
+        {
+            "Sid": "SecretsManagerAccess",
+            "Effect": "Allow",
+            "Action": "secretsmanager:GetSecretValue",
+            "Resource": "${youtube_api_key_secret_arn}"
         }
     ]
 }

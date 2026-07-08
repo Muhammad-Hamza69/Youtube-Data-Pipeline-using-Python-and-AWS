@@ -1,0 +1,4 @@
+# Same pinning rationale as lambdas/json_to_parquet/requirements.txt — VERIFY
+# against the account's actual AWSSDKPandas-Python311 layer version first.
+awswrangler==3.9.1
+pandas==2.2.2

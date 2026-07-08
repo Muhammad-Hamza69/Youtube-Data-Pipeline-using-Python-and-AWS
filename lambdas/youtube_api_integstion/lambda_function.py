@@ -32,9 +32,21 @@ logger.setLevel(logging.INFO)
 # ── AWS Clients ──────────────────────────────────────────────────────────────
 s3_client = boto3.client("s3")
 sns_client = boto3.client("sns")
+secrets_client = boto3.client("secretsmanager")
+
+
+def _load_youtube_api_key() -> str:
+    """
+    Read the YouTube API key from Secrets Manager instead of a plaintext
+    environment variable. YOUTUBE_API_KEY_SECRET_ARN is set by Terraform
+    (terraform/modules/secrets) to the secret created for this key.
+    """
+    secret_arn = os.environ["YOUTUBE_API_KEY_SECRET_ARN"]
+    return secrets_client.get_secret_value(SecretId=secret_arn)["SecretString"]
+
 
 # ── Config ───────────────────────────────────────────────────────────────────
-API_KEY = os.environ["YOUTUBE_API_KEY"]
+API_KEY = _load_youtube_api_key()
 BUCKET = os.environ["S3_BUCKET_BRONZE"]
 REGIONS = os.environ.get("YOUTUBE_REGIONS", "US,GB,CA,DE,FR,IN,JP,KR,MX,RU").split(",")
 SNS_TOPIC = os.environ.get("SNS_ALERT_TOPIC_ARN", "")

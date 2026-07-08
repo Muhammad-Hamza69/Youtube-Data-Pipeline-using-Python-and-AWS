@@ -1,0 +1,53 @@
+# The image below is a placeholder — deploy-dashboard (.github/workflows/deploy.yml)
+# overwrites it after every apply via `kubectl set image`. Env var values are
+# static since none of these resource names have random suffixes (fixed by
+# the Terraform modules), so no runtime templating is needed for them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      serviceAccountName: dashboard-sa
+      containers:
+        - name: dashboard
+          image: REPLACE_WITH_ECR_IMAGE
+          ports:
+            - containerPort: 8080
+          env:
+            - name: STATE_MACHINE_ARN
+              value: "arn:aws:states:us-east-1:300617413029:stateMachine:yt-data-pipeline"
+            - name: ATHENA_WORKGROUP
+              value: "yt-pipeline-dashboard"
+            - name: GOLD_DATABASE
+              value: "yt_pipeline_gold_db"
+            - name: AWS_REGION
+              value: "us-east-1"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30

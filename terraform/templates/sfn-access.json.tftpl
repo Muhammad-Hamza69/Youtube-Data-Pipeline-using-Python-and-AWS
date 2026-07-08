@@ -4,7 +4,7 @@
         {
             "Effect": "Allow",
             "Action": "lambda:InvokeFunction",
-            "Resource": "arn:aws:lambda:us-east-1:914216784354:function:yt-*"
+            "Resource": "arn:aws:lambda:${region}:${account_id}:function:yt-*"
         },
         {
             "Effect": "Allow",
@@ -19,7 +19,7 @@
         {
             "Effect": "Allow",
             "Action": "sns:Publish",
-            "Resource": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts"
+            "Resource": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts"
         }
     ]
 }

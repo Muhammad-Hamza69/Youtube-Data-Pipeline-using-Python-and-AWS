@@ -6,7 +6,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:us-east-1:914216784354:function:yt-ingest",
+        "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-ingest",
         "Payload": {
           "triggered_by": "step_functions",
           "execution_id.$": "$$.Execution.Id"
@@ -49,7 +49,7 @@
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "arn:aws:lambda:us-east-1:914216784354:function:yt-json-to-parquet",
+                "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-json-to-parquet",
                 "Payload": {
                   "triggered_by": "step_functions"
                 }
@@ -78,7 +78,7 @@
                 "Arguments": {
                   "--bronze_database": "yt_pipeline_bronze_db",
                   "--bronze_table": "raw_statistics",
-                  "--silver_bucket": "yt-pipeline-silver-us-east-1-914216784354",
+                  "--silver_bucket": "yt-pipeline-silver-${region}-${account_id}",
                   "--silver_database": "yt_pipeline_silver_db",
                   "--silver_table": "clean_statistics"
                 }
@@ -112,7 +112,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:us-east-1:914216784354:function:yt-data-quality",
+        "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-data-quality",
         "Payload": {
           "layer": "silver",
           "database": "yt_pipeline_silver_db",
@@ -150,7 +150,7 @@
         "JobName": "yt-data-pipeline-silver-to-gold",
         "Arguments": {
           "--silver_database": "yt_pipeline_silver_db",
-          "--gold_bucket": "yt-pipeline-gold-us-east-1-914216784354",
+          "--gold_bucket": "yt-pipeline-gold-${region}-${account_id}",
           "--gold_database": "yt_pipeline_gold_db"
         }
       },
@@ -177,7 +177,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts",
+        "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
         "Subject": "[YT Pipeline] Pipeline completed successfully",
         "Message.$": "States.Format('Pipeline run {} completed. All layers updated.', $$.Execution.Id)"
       },
@@ -188,7 +188,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts",
+        "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
         "Subject": "[YT Pipeline] FAILURE — Ingestion step failed",
         "Message.$": "States.JsonToString($.error)"
       },
@@ -199,7 +199,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts",
+        "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
         "Subject": "[YT Pipeline] FAILURE — Transform step failed",
         "Message.$": "States.JsonToString($.error)"
       },
@@ -210,7 +210,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts",
+        "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
         "Subject": "[YT Pipeline] WARNING — Data quality checks failed",
         "Message.$": "States.JsonToString($.dq_result)"
       },
@@ -221,7 +221,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:us-east-1:914216784354:yt-pipeline-alerts",
+        "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
         "Subject": "[YT Pipeline] FAILURE — Gold aggregation failed",
         "Message.$": "States.JsonToString($.error)"
       },

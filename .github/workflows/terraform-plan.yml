@@ -1,0 +1,75 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - "iam_permission/**"
+      - "step_functions/**"
+      - "glue_jobs/**"
+
+permissions:
+  id-token: write      # required for OIDC -> AWS role assumption
+  contents: read
+  pull-requests: write # to post the plan as a PR comment
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/envs/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive ../..
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        id: plan
+        # image_tag doesn't affect anything but Lambda's image URI attribute,
+        # and this is a read-only plan (gha-plan-role has no write perms), so
+        # a fixed placeholder tag is fine here — the real tag is only used by
+        # deploy.yml's apply step.
+        run: |
+          terraform plan \
+            -var="image_tag=plan-preview" \
+            -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
+            -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
+            -no-color -input=false
+        continue-on-error: true
+
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Fail if plan errored
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
