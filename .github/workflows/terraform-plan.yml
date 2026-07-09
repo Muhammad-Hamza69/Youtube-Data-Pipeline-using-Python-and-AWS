@@ -52,6 +52,7 @@ jobs:
             -var="image_tag=plan-preview" \
             -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
             -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
+            -var="alert_email=${{ vars.ALERT_EMAIL }}" \
             -no-color -input=false
         continue-on-error: true
 

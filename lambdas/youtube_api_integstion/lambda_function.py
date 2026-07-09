@@ -42,7 +42,12 @@ def _load_youtube_api_key() -> str:
     (terraform/modules/secrets) to the secret created for this key.
     """
     secret_arn = os.environ["YOUTUBE_API_KEY_SECRET_ARN"]
-    return secrets_client.get_secret_value(SecretId=secret_arn)["SecretString"]
+    # .strip() defends against whitespace/CRLF accidentally embedded in the
+    # secret value (e.g. from copying a key out of a Windows text file into
+    # the GitHub secret) — a stray trailing \r\n gets percent-encoded into
+    # the API request's key= parameter, turning a valid key into an invalid
+    # one with no visible symptom beyond a generic 403 from Google.
+    return secrets_client.get_secret_value(SecretId=secret_arn)["SecretString"].strip()
 
 
 # ── Config ───────────────────────────────────────────────────────────────────

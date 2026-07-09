@@ -27,7 +27,8 @@ module "ecr" {
 }
 
 module "sns" {
-  source = "../../modules/sns"
+  source      = "../../modules/sns"
+  alert_email = var.alert_email
 }
 
 module "athena" {

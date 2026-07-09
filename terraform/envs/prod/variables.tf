@@ -30,3 +30,8 @@ variable "allowed_dashboard_cidr" {
   description = "CIDR allowed to reach the dashboard's NodePort (30080) on the EKS nodes. No default on purpose — the dashboard pod carries AWS read credentials via IRSA and must not be silently left open to the internet. Pass your office/VPN CIDR via -var or the DASHBOARD_ALLOWED_CIDR CI variable."
   type        = string
 }
+
+variable "alert_email" {
+  description = "Email address subscribed to pipeline failure/success SNS alerts. No default on purpose — pass via -var or the ALERT_EMAIL CI variable. Requires clicking a confirmation link AWS sends to this address before alerts actually deliver."
+  type        = string
+}
