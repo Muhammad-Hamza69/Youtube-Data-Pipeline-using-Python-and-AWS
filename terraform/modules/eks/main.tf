@@ -205,6 +205,19 @@ resource "aws_launch_template" "nodes" {
 
   vpc_security_group_ids = [aws_security_group.nodes.id]
 
+  # AWS's EKS docs require a hop limit of 2 (not the account default of 1)
+  # for pod-based system components — the VPC CNI's aws-node daemonset in
+  # particular — to reach the instance metadata service from a container
+  # network namespace, even with hostNetwork: true. Without this, ipamd
+  # hangs forever on its IMDS-dependent startup check, never opens its
+  # gRPC port, and the node group fails with CREATE_FAILED "Unhealthy
+  # nodes" regardless of instance size (confirmed: t3.small AND t3.medium
+  # both failed identically until this was set).
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   tag_specifications {
     resource_type = "instance"
     tags          = { Name = "yt-pipeline-eks-node" }
