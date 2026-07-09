@@ -2,3 +2,7 @@
 # against the account's actual AWSSDKPandas-Python311 layer version first.
 awswrangler==3.9.1
 pandas==2.2.2
+# See lambdas/json_to_parquet/requirements.txt for why this is pinned:
+# awswrangler's unbounded pyarrow>=8.0.0 otherwise resolves to whatever is
+# newest at build time, which can lack a prebuilt wheel and break the build.
+pyarrow==17.0.0
