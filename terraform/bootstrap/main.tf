@@ -96,6 +96,12 @@ resource "aws_iam_openid_connect_provider" "github" {
 locals {
   repo_subject_pr   = "repo:${var.github_org}/${var.github_repo}:pull_request"
   repo_subject_main = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"
+  # A job that targets a GitHub Environment (e.g. `environment: production` on
+  # terraform-apply, for the manual-approval gate) gets an OIDC token whose
+  # `sub` claim is "repo:OWNER/REPO:environment:NAME" instead of the branch-ref
+  # form above — a completely different string. Both forms must be trusted or
+  # any job using the production environment fails to assume this role.
+  repo_subject_production_env = "repo:${var.github_org}/${var.github_repo}:environment:production"
 }
 
 # ── Plan role: read-only, usable from any pull_request build ───────────────
@@ -155,7 +161,7 @@ data "aws_iam_policy_document" "gha_deploy_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [local.repo_subject_main]
+      values   = [local.repo_subject_main, local.repo_subject_production_env]
     }
   }
 }
