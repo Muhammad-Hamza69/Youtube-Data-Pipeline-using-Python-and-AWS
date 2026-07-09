@@ -32,6 +32,13 @@ spec:
               value: "yt_pipeline_gold_db"
             - name: AWS_REGION
               value: "us-east-1"
+            - name: AWS_DEFAULT_REGION
+              # boto3.client() calls with no explicit region_name raised
+              # NoRegionError in the running pod despite AWS_REGION being set —
+              # some botocore versions/resolution paths only check
+              # AWS_DEFAULT_REGION. Set both; AWS_DEFAULT_REGION has been
+              # recognized by every botocore version.
+              value: "us-east-1"
             - name: TRIGGER_API_KEY
               valueFrom:
                 secretKeyRef:
