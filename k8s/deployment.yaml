@@ -32,6 +32,11 @@ spec:
               value: "yt_pipeline_gold_db"
             - name: AWS_REGION
               value: "us-east-1"
+            - name: TRIGGER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-api-key
+                  key: key
           resources:
             requests:
               cpu: 100m

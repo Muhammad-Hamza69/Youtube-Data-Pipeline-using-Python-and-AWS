@@ -36,13 +36,14 @@ resource "aws_iam_role" "dashboard" {
 
 data "aws_iam_policy_document" "dashboard_readonly" {
   statement {
-    sid    = "StepFunctionsReadOnly"
+    sid    = "StepFunctionsTriggerAndRead"
     effect = "Allow"
     actions = [
       "states:ListExecutions",
       "states:DescribeExecution",
       "states:GetExecutionHistory",
       "states:DescribeStateMachine",
+      "states:StartExecution",
     ]
     resources = [
       var.state_machine_arn,
@@ -90,6 +91,25 @@ data "aws_iam_policy_document" "dashboard_readonly" {
     resources = [
       var.gold_bucket_arn,
       "${var.gold_bucket_arn}/*",
+    ]
+  }
+
+  statement {
+    # Athena writes query results to S3 using the CALLING principal's
+    # credentials, not a separate service role — without these, every
+    # athena:StartQueryExecution call (even a read-only SELECT) fails with
+    # S3 AccessDenied when Athena tries to write results to the workgroup's
+    # output location. This was missing even for the existing read-only
+    # Gold-stats queries.
+    sid    = "AthenaResultsWrite"
+    effect = "Allow"
+    actions = [
+      "s3:PutObject",
+      "s3:GetBucketLocation",
+    ]
+    resources = [
+      var.gold_bucket_arn,
+      "${var.gold_bucket_arn}/athena-dashboard-results/*",
     ]
   }
 }

@@ -82,6 +82,23 @@ resource "aws_eks_cluster" "this" {
   # rejecting it (InvalidParameterException: unsupported Kubernetes version).
   # Omitting it lets EKS use its own current default, which AWS keeps current.
 
+  access_config {
+    # Default (CONFIG_MAP-only) auth requires manually managing the aws-auth
+    # ConfigMap to grant the node IAM role cluster access — nothing here does
+    # that, so managed node group instances bootstrap fine at the OS level but
+    # are never authorized to register with the API server, and the node
+    # group eventually fails with CREATE_FAILED / "Unhealthy nodes". Under
+    # API_AND_CONFIG_MAP, EKS automatically creates the access entry for a
+    # *managed* node group's role, so no extra Terraform resource is needed.
+    authentication_mode = "API_AND_CONFIG_MAP"
+    # bootstrap_cluster_creator_admin_permissions is ForceNew — must be set
+    # explicitly to match its actual current value (AWS defaulted it to true
+    # when the cluster was first created), otherwise Terraform sees a diff
+    # against the implicit `null` and replaces the entire cluster just to
+    # change the authentication mode, which should be a pure in-place update.
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   vpc_config {
     subnet_ids              = aws_subnet.public[*].id
     endpoint_public_access  = true

@@ -166,6 +166,19 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name yt-pipeline-dashboard --region ${{ env.AWS_REGION }}
 
+      - name: Ensure namespace exists
+        # kubectl apply -f k8s/ reads files alphabetically (deployment.yaml
+        # before namespace.yaml), so on a first-ever apply the Deployment/
+        # Service/ServiceAccount would otherwise fail with "namespace not
+        # found". Make namespace creation explicit and order-independent.
+        run: kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create or update the dashboard trigger API key secret
+        run: |
+          kubectl create secret generic dashboard-api-key -n monitoring \
+            --from-literal=key="${{ secrets.DASHBOARD_TRIGGER_API_KEY }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply manifests
         run: kubectl apply -f k8s/
 

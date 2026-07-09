@@ -41,6 +41,7 @@ In **Settings → Secrets and variables → Actions**:
 | Variable | `AWS_DEPLOY_ROLE_ARN` | `gha_deploy_role_arn` output from step 1 |
 | Variable | `DASHBOARD_ALLOWED_CIDR` | Your office/VPN CIDR (e.g. `203.0.113.4/32`) — **never `0.0.0.0/0`**, the dashboard pod carries AWS read credentials via IRSA behind that NodePort |
 | Secret | `YOUTUBE_API_KEY` | A freshly issued YouTube Data API v3 key |
+| Secret | `DASHBOARD_TRIGGER_API_KEY` | A random shared secret you generate (e.g. `openssl rand -hex 32`) — required as the `X-API-Key` header to `POST /trigger` on the dashboard |
 
 > If you're rotating off a previously exposed key (see the Security Notes below),
 > generate a brand new one in Google Cloud Console rather than reusing the old value.
@@ -62,9 +63,23 @@ With steps 1-2 done, a push to `main` runs, in order:
    everything: S3 buckets, IAM roles, Glue jobs/catalog, Lambda functions (referencing
    the images just pushed), Step Functions, EventBridge schedule, SNS, Athena, Secrets
    Manager, and the EKS cluster.
-4. **deploy-dashboard** — points `kubectl` at the new cluster, applies `k8s/`, patches
-   the dashboard's IRSA role ARN onto its service account, and rolls out the
-   `yt-dashboard` image.
+4. **deploy-dashboard** — points `kubectl` at the new cluster, ensures the `monitoring`
+   namespace and `dashboard-api-key` secret exist, applies `k8s/`, patches the
+   dashboard's IRSA role ARN onto its service account, and rolls out the `yt-dashboard`
+   image.
+
+## The dashboard is a control panel, not just a viewer
+
+The dashboard (NodePort 30080) shows recent Step Functions executions, the last
+data-quality result, and Gold table stats — and can also:
+- **Trigger a new pipeline run**: `POST /trigger` with header `X-API-Key: <DASHBOARD_TRIGGER_API_KEY>`.
+  Returns `401` on a missing/wrong key, `409` if a run is already in progress (prevents
+  overlapping executions), `200` + the new execution name/ARN otherwise. Each trigger
+  costs real YouTube API quota and AWS compute, hence the API key requirement on top of
+  the `DASHBOARD_ALLOWED_CIDR` network restriction.
+- **Run predefined Gold-table queries**: `GET /query/top_channels`, `/query/top_categories`,
+  `/query/trending_summary` — fixed queries only (no free-form SQL), to keep Athena scan
+  cost bounded and avoid exposing a query-injection surface on a network port.
 
 ## Ongoing cost
 
