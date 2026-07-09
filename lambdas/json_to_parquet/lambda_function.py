@@ -2,7 +2,7 @@
 Lambda: JSON Reference Data → Silver Layer (Parquet)
 ────────────────────────────────────────────────────
 Triggered by S3 event when new JSON lands in the Bronze bucket
-under the reference_data prefix. Add a Layer (AWSSDKPandas-Python311) 
+under the reference_data prefix. Add a Layer (AWSSDKPandas-Python311)
 Improvements over original:
   - Data validation before writing
   - Deduplication of category records
@@ -140,7 +140,7 @@ def lambda_handler(event, context):
             logger.info(f"  Clean shape: {df.shape}, region: {region}")
 
             # ── Write to Silver layer as Parquet ─────────────────────────
-            wr_response = wr.s3.to_parquet(
+            wr.s3.to_parquet(
                 df=df,
                 path=SILVER_PATH,
                 dataset=True,
@@ -156,7 +156,9 @@ def lambda_handler(event, context):
 
         except Exception as e:
             logger.error(f"Error processing record: {e}", exc_info=True)
-            errors.append({"key": key if "key" in dir() else "unknown", "error": str(e)})
+            errors.append(
+                {"key": key if "key" in dir() else "unknown", "error": str(e)}
+            )
 
     # ── Summary ──────────────────────────────────────────────────────────
     if errors:

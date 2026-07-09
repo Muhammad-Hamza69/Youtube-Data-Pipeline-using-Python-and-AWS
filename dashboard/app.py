@@ -52,7 +52,9 @@ def run_athena_query(sql: str, timeout_seconds: int = 30):
         if state == "SUCCEEDED":
             break
         if state in ("FAILED", "CANCELLED"):
-            reason = status["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
+            reason = status["QueryExecution"]["Status"].get(
+                "StateChangeReason", "unknown"
+            )
             logger.warning("Athena query failed: %s", reason)
             return None
         time.sleep(1)
@@ -72,7 +74,9 @@ def run_athena_query(sql: str, timeout_seconds: int = 30):
 
 
 def get_recent_executions(limit: int = 10):
-    resp = sfn_client.list_executions(stateMachineArn=STATE_MACHINE_ARN, maxResults=limit)
+    resp = sfn_client.list_executions(
+        stateMachineArn=STATE_MACHINE_ARN, maxResults=limit
+    )
     return [
         {
             "name": e["name"],
@@ -93,9 +97,7 @@ def get_last_dq_result(executions):
     if not executions:
         return None
 
-    execution_arn = (
-        f"{STATE_MACHINE_ARN.replace(':stateMachine:', ':execution:')}:{executions[0]['name']}"
-    )
+    execution_arn = f"{STATE_MACHINE_ARN.replace(':stateMachine:', ':execution:')}:{executions[0]['name']}"
     try:
         history = sfn_client.get_execution_history(
             executionArn=execution_arn, reverseOrder=True, maxResults=50
@@ -105,7 +107,9 @@ def get_last_dq_result(executions):
         return None
 
     for event in history["events"]:
-        details = event.get("taskSucceededEventDetails") or event.get("lambdaFunctionSucceededEventDetails")
+        details = event.get("taskSucceededEventDetails") or event.get(
+            "lambdaFunctionSucceededEventDetails"
+        )
         if details and "output" in details:
             try:
                 payload = json.loads(details["output"])

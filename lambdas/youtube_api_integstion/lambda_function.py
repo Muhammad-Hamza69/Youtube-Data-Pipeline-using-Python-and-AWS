@@ -59,13 +59,15 @@ def fetch_trending_videos(region_code: str) -> dict:
     Call the YouTube Data API to get the current trending videos
     for a given region.
     """
-    params = urlencode({
-        "part": "snippet,statistics,contentDetails",
-        "chart": "mostPopular",
-        "regionCode": region_code,
-        "maxResults": MAX_RESULTS,
-        "key": API_KEY,
-    })
+    params = urlencode(
+        {
+            "part": "snippet,statistics,contentDetails",
+            "chart": "mostPopular",
+            "regionCode": region_code,
+            "maxResults": MAX_RESULTS,
+            "key": API_KEY,
+        }
+    )
     url = f"{API_BASE}/videos?{params}"
 
     req = Request(url, headers={"Accept": "application/json"})
@@ -78,11 +80,13 @@ def fetch_video_categories(region_code: str) -> dict:
     Fetch the video category mapping for a region.
     This replaces the static JSON reference files from Kaggle.
     """
-    params = urlencode({
-        "part": "snippet",
-        "regionCode": region_code,
-        "key": API_KEY,
-    })
+    params = urlencode(
+        {
+            "part": "snippet",
+            "regionCode": region_code,
+            "key": API_KEY,
+        }
+    )
     url = f"{API_BASE}/videoCategories?{params}"
 
     req = Request(url, headers={"Accept": "application/json"})
@@ -160,11 +164,15 @@ def lambda_handler(event, context):
 
         except (HTTPError, URLError) as e:
             logger.error(f"  API error for {region} trending: {e}")
-            results["failed"].append({"region": region, "type": "trending", "error": str(e)})
+            results["failed"].append(
+                {"region": region, "type": "trending", "error": str(e)}
+            )
             continue
         except Exception as e:
             logger.error(f"  Unexpected error for {region} trending: {e}")
-            results["failed"].append({"region": region, "type": "trending", "error": str(e)})
+            results["failed"].append(
+                {"region": region, "type": "trending", "error": str(e)}
+            )
             continue
 
         # ── Fetch category reference data ────────────────────────────────
@@ -188,7 +196,9 @@ def lambda_handler(event, context):
 
         except (HTTPError, URLError) as e:
             logger.error(f"  API error for {region} categories: {e}")
-            results["failed"].append({"region": region, "type": "categories", "error": str(e)})
+            results["failed"].append(
+                {"region": region, "type": "categories", "error": str(e)}
+            )
             continue
 
         results["success"].append(region)

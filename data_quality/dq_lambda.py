@@ -3,7 +3,7 @@ Lambda: Data Quality Checks
 ────────────────────────────
 Called by Step Functions after the Silver layer is built.
 Validates data quality before allowing the Gold aggregation to proceed.
-Add a Layer (AWSSDKPandas-Python311) 
+Add a Layer (AWSSDKPandas-Python311)
 
 Checks performed:
   1. Row count — is there enough data?
@@ -66,26 +66,30 @@ def check_null_percentage(df: pd.DataFrame, table_name: str) -> list:
 
     for col in cols:
         if col not in df.columns:
-            results.append({
-                "check": "null_pct",
-                "table": table_name,
-                "column": col,
-                "passed": False,
-                "message": f"Column '{col}' missing from table",
-            })
+            results.append(
+                {
+                    "check": "null_pct",
+                    "table": table_name,
+                    "column": col,
+                    "passed": False,
+                    "message": f"Column '{col}' missing from table",
+                }
+            )
             continue
 
         null_pct = (df[col].isna().sum() / len(df)) * 100 if len(df) > 0 else 0
         passed = null_pct <= MAX_NULL_PCT
-        results.append({
-            "check": "null_pct",
-            "table": table_name,
-            "column": col,
-            "value": round(null_pct, 2),
-            "threshold": MAX_NULL_PCT,
-            "passed": passed,
-            "message": f"{col} null%: {null_pct:.2f}% (max: {MAX_NULL_PCT}%)",
-        })
+        results.append(
+            {
+                "check": "null_pct",
+                "table": table_name,
+                "column": col,
+                "value": round(null_pct, 2),
+                "threshold": MAX_NULL_PCT,
+                "passed": passed,
+                "message": f"{col} null%: {null_pct:.2f}% (max: {MAX_NULL_PCT}%)",
+            }
+        )
 
     return results
 
@@ -101,7 +105,9 @@ def check_schema(df: pd.DataFrame, table_name: str) -> dict:
         "table": table_name,
         "missing_columns": list(missing),
         "passed": passed,
-        "message": f"Missing columns: {missing}" if missing else "All expected columns present",
+        "message": (
+            f"Missing columns: {missing}" if missing else "All expected columns present"
+        ),
     }
 
 
@@ -116,15 +122,17 @@ def check_value_ranges(df: pd.DataFrame, table_name: str) -> list:
         negative = (df["views"] < 0).sum()
         extreme = (df["views"] > MAX_VIEWS).sum()
         passed = negative == 0 and extreme == 0
-        results.append({
-            "check": "value_range",
-            "table": table_name,
-            "column": "views",
-            "negative_count": int(negative),
-            "extreme_count": int(extreme),
-            "passed": passed,
-            "message": f"Views: {negative} negative, {extreme} extreme (>{MAX_VIEWS})",
-        })
+        results.append(
+            {
+                "check": "value_range",
+                "table": table_name,
+                "column": "views",
+                "negative_count": int(negative),
+                "extreme_count": int(extreme),
+                "passed": passed,
+                "message": f"Views: {negative} negative, {extreme} extreme (>{MAX_VIEWS})",
+            }
+        )
 
     return results
 
@@ -139,7 +147,9 @@ def check_freshness(df: pd.DataFrame, table_name: str) -> dict:
             "message": "No timestamp column found — skipping freshness check (backfill data)",
         }
 
-    ts_col = "_processed_at" if "_processed_at" in df.columns else "_ingestion_timestamp"
+    ts_col = (
+        "_processed_at" if "_processed_at" in df.columns else "_ingestion_timestamp"
+    )
     try:
         latest = pd.to_datetime(df[ts_col]).max()
         cutoff = datetime.now(timezone.utc) - timedelta(hours=FRESHNESS_HOURS)
@@ -194,12 +204,14 @@ def lambda_handler(event, context):
             )
         except Exception as e:
             logger.error(f"Could not read {table_name}: {e}")
-            all_results.append({
-                "check": "read_table",
-                "table": table_name,
-                "passed": False,
-                "message": str(e),
-            })
+            all_results.append(
+                {
+                    "check": "read_table",
+                    "table": table_name,
+                    "passed": False,
+                    "message": str(e),
+                }
+            )
             overall_passed = False
             continue
 
@@ -212,7 +224,9 @@ def lambda_handler(event, context):
         checks.append(check_freshness(df, table_name))
 
         for check in checks:
-            logger.info(f"  {check['check']}: {'PASS' if check['passed'] else 'FAIL'} — {check['message']}")
+            logger.info(
+                f"  {check['check']}: {'PASS' if check['passed'] else 'FAIL'} — {check['message']}"
+            )
             if not check["passed"]:
                 overall_passed = False
 
@@ -221,7 +235,10 @@ def lambda_handler(event, context):
     # Summary
     passed_count = sum(1 for r in all_results if r["passed"])
     total_count = len(all_results)
-    logger.info(f"DQ Summary: {passed_count}/{total_count} checks passed. Overall: {'PASS' if overall_passed else 'FAIL'}")
+    verdict = "PASS" if overall_passed else "FAIL"
+    logger.info(
+        f"DQ Summary: {passed_count}/{total_count} checks passed. Overall: {verdict}"
+    )
 
     if not overall_passed and SNS_TOPIC:
         failed = [r for r in all_results if not r["passed"]]
