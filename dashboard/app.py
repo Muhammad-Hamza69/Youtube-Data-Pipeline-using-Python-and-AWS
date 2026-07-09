@@ -33,7 +33,7 @@ app = Flask(__name__)
 STATE_MACHINE_ARN = os.environ["STATE_MACHINE_ARN"]
 ATHENA_WORKGROUP = os.environ["ATHENA_WORKGROUP"]
 GOLD_DATABASE = os.environ["GOLD_DATABASE"]
-TRIGGER_API_KEY = os.environ["TRIGGER_API_KEY"]
+TRIGGER_API_KEY = os.environ["TRIGGER_API_KEY"].strip()
 
 sfn_client = boto3.client("stepfunctions")
 athena_client = boto3.client("athena")
@@ -171,7 +171,8 @@ def get_dashboard_data():
 
 def _check_api_key():
     """Validate the X-API-Key header. Returns an error response tuple, or None if valid."""
-    if request.headers.get("X-API-Key") != TRIGGER_API_KEY:
+    provided = (request.headers.get("X-API-Key") or "").strip()
+    if provided != TRIGGER_API_KEY:
         return jsonify({"error": "invalid or missing X-API-Key header"}), 401
     return None
 
