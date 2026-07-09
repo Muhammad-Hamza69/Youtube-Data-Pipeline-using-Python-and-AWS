@@ -21,8 +21,9 @@ variable "image_tag" {
 }
 
 variable "eks_node_instance_type" {
+  # See terraform/modules/eks/variables.tf for why this isn't t3.small anymore.
   type    = string
-  default = "t3.small"
+  default = "t3.medium"
 }
 
 variable "allowed_dashboard_cidr" {

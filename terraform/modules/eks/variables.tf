@@ -3,8 +3,12 @@ variable "region" {
 }
 
 variable "node_instance_type" {
+  # t3.small (2GB RAM) proved too tight for kubelet+containerd+kube-proxy+VPC-CNI
+  # to all start reliably — the CNI's ipamd process kept timing out on its
+  # readiness/liveness probes under resource pressure, causing intermittent
+  # node group CREATE_FAILED. t3.medium (4GB) gives real headroom.
   type    = string
-  default = "t3.small"
+  default = "t3.medium"
 }
 
 variable "vpc_cidr" {
