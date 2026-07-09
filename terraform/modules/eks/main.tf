@@ -77,7 +77,10 @@ resource "aws_iam_role_policy_attachment" "cluster_policy" {
 resource "aws_eks_cluster" "this" {
   name     = var.cluster_name
   role_arn = aws_iam_role.cluster.arn
-  version  = "1.29"
+  # No `version` pinned on purpose: a hardcoded minor version (e.g. "1.29")
+  # eventually ages out of AWS's supported range and CreateCluster starts
+  # rejecting it (InvalidParameterException: unsupported Kubernetes version).
+  # Omitting it lets EKS use its own current default, which AWS keeps current.
 
   vpc_config {
     subnet_ids              = aws_subnet.public[*].id
