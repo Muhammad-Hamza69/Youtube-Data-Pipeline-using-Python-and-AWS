@@ -203,7 +203,14 @@ resource "aws_security_group_rule" "dashboard_nodeport" {
 resource "aws_launch_template" "nodes" {
   name_prefix = "yt-pipeline-eks-node-"
 
-  vpc_security_group_ids = [aws_security_group.nodes.id]
+  # Supplying a custom launch template's own vpc_security_group_ids opts out
+  # of EKS's automatic cluster-security-group attachment (that auto-attach
+  # only happens when the launch template doesn't specify security groups at
+  # all). Without the cluster SG here too, node/pod <-> control-plane traffic
+  # is incomplete: CoreDNS can't watch the API server, stays NotReady forever,
+  # and every pod's DNS resolution (including AWS API hostnames like
+  # sts.amazonaws.com) fails as a result. Both SGs are required.
+  vpc_security_group_ids = [aws_security_group.nodes.id, aws_eks_cluster.this.vpc_config[0].cluster_security_group_id]
 
   # AWS's EKS docs require a hop limit of 2 (not the account default of 1)
   # for pod-based system components — the VPC CNI's aws-node daemonset in
