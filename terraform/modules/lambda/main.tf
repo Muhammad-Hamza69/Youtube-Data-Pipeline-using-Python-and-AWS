@@ -31,6 +31,7 @@ resource "aws_lambda_function" "json_to_parquet" {
 
   environment {
     variables = {
+      S3_BUCKET_BRONZE     = var.bronze_bucket_name
       S3_BUCKET_SILVER     = var.silver_bucket_name
       GLUE_DB_SILVER       = var.glue_silver_db
       GLUE_TABLE_REFERENCE = var.glue_reference_table

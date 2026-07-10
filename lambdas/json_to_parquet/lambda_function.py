@@ -11,6 +11,7 @@ Improvements over original:
   - Structured logging
 
 Environment Variables:
+    S3_BUCKET_BRONZE            — Bronze bucket to scan when invoked directly (no S3 event Records)
     S3_BUCKET_SILVER            — Target bucket for cleansed data
     GLUE_DB_SILVER              — Glue catalog database name
     GLUE_TABLE_REFERENCE        — Glue catalog table name
@@ -32,6 +33,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # ── Config ───────────────────────────────────────────────────────────────────
+BRONZE_BUCKET = os.environ["S3_BUCKET_BRONZE"]
 SILVER_BUCKET = os.environ["S3_BUCKET_SILVER"]
 GLUE_DB = os.environ.get("GLUE_DB_SILVER", "yt_pipeline_silver_dev")
 GLUE_TABLE = os.environ.get("GLUE_TABLE_REFERENCE", "clean_reference_data")
@@ -85,14 +87,41 @@ def send_alert(subject: str, message: str):
         sns_client.publish(TopicArn=SNS_TOPIC, Subject=subject[:100], Message=message)
 
 
-def lambda_handler(event, context):
-    """Process S3 event for new JSON reference files."""
+def list_reference_data_keys(bucket: str) -> list:
+    """
+    Scan the Bronze reference-data prefix for every category JSON file.
+    Used when invoked directly by Step Functions, which has no S3 event
+    Records to react to — Step Functions just calls this Lambda with a
+    static {"triggered_by": "step_functions"} payload. Reprocessing all
+    files each run is safe: the Silver write is idempotent per region
+    (mode="overwrite_partitions").
+    """
+    keys = []
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(
+        Bucket=bucket, Prefix="youtube/raw_statistics_reference_data/"
+    ):
+        for obj in page.get("Contents", []):
+            if obj["Key"].endswith(".json"):
+                keys.append(obj["Key"])
+    return keys
 
-    # Handle both direct S3 events and EventBridge-wrapped events
+
+def lambda_handler(event, context):
+    """Process new JSON reference files — either from an S3 event, or by
+    scanning the whole Bronze reference-data prefix when Step Functions
+    invokes this directly with no S3 Records."""
+
     records = event.get("Records", [])
     if not records:
-        # Could be invoked directly by Step Functions
-        records = [event] if "s3" in event else []
+        keys = list_reference_data_keys(BRONZE_BUCKET)
+        records = [
+            {"s3": {"bucket": {"name": BRONZE_BUCKET}, "object": {"key": key}}}
+            for key in keys
+        ]
+        logger.info(
+            f"Invoked directly — found {len(records)} reference file(s) in Bronze"
+        )
 
     processed = []
     errors = []
