@@ -43,13 +43,17 @@ jobs:
 
       - name: Terraform plan
         id: plan
-        # image_tag doesn't affect anything but Lambda's image URI attribute,
-        # and this is a read-only plan (gha-plan-role has no write perms), so
-        # a fixed placeholder tag is fine here — the real tag is only used by
-        # deploy.yml's apply step.
+        # The per-Lambda image tags don't affect anything but each Lambda's
+        # image URI attribute, and this is a read-only plan (gha-plan-role
+        # has no write perms), so fixed placeholder tags are fine here — the
+        # real tags are only used by each component's own deploy workflow.
+        # This plan is intentionally untargeted so drift across all 3
+        # Lambdas (and everything else) stays visible on every PR.
         run: |
           terraform plan \
-            -var="image_tag=plan-preview" \
+            -var="ingest_image_tag=plan-preview" \
+            -var="transform_image_tag=plan-preview" \
+            -var="dq_image_tag=plan-preview" \
             -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
             -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
             -var="alert_email=${{ vars.ALERT_EMAIL }}" \

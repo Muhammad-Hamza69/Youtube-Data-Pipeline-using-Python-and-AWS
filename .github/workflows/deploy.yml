@@ -1,8 +1,11 @@
-name: Build, Provision & Deploy
+name: Provision Shared Infrastructure
 
-# Combined push-to-main pipeline. Kept as one workflow file (rather than
-# separate build/apply/deploy files) so `needs:` can actually sequence the
-# jobs — GitHub Actions job dependencies only work within a single workflow.
+# Lints the whole repo and applies everything except the 3 Lambdas and the
+# dashboard — each of those now has its own independent deploy-*.yml
+# workflow (instructor feedback: "three lambdas should be separately
+# managed" / "Go with Argo CD"). Kept as one workflow file so `needs:` can
+# sequence lint -> changes -> terraform-apply — GitHub Actions job
+# dependencies only work within a single workflow.
 on:
   push:
     branches: [main]
@@ -34,10 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     outputs:
-      ingest: ${{ steps.filter.outputs.ingest }}
-      json_to_parquet: ${{ steps.filter.outputs.json_to_parquet }}
-      data_quality: ${{ steps.filter.outputs.data_quality }}
-      dashboard: ${{ steps.filter.outputs.dashboard }}
       terraform: ${{ steps.filter.outputs.terraform }}
     steps:
       - uses: actions/checkout@v4
@@ -45,118 +44,22 @@ jobs:
         id: filter
         with:
           filters: |
-            ingest:
-              - 'lambdas/youtube_api_integstion/**'
-            json_to_parquet:
-              - 'lambdas/json_to_parquet/**'
-            data_quality:
-              - 'data_quality/**'
-            dashboard:
-              - 'dashboard/**'
             terraform:
               - 'terraform/**'
               - 'iam_permission/**'
               - 'step_functions/**'
               - 'glue_jobs/**'
 
-  build-and-push-images:
-    runs-on: ubuntu-latest
-    needs: changes
-    # No job-level `if:` skip here on purpose: terraform-apply always deploys
-    # image_tag=github.sha for all 4 repos, even ones this push didn't touch.
-    # If this whole job were skipped (e.g. a terraform-only push), none of the
-    # 4 images would exist at the new tag and every Lambda/dashboard resource
-    # would fail to create. Every component either gets rebuilt or retagged.
-    strategy:
-      fail-fast: false # 4 independent images; one failing shouldn't cancel the other three
-      matrix:
-        include:
-          - name: yt-ingest
-            dir: lambdas/youtube_api_integstion
-            changed: ${{ needs.changes.outputs.ingest }}
-          - name: yt-json-to-parquet
-            dir: lambdas/json_to_parquet
-            changed: ${{ needs.changes.outputs.json_to_parquet }}
-          - name: yt-data-quality
-            dir: data_quality
-            changed: ${{ needs.changes.outputs.data_quality }}
-          - name: yt-dashboard
-            dir: dashboard
-            changed: ${{ needs.changes.outputs.dashboard }}
-    steps:
-      - uses: actions/checkout@v4
-        if: matrix.changed == 'true'
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - uses: aws-actions/amazon-ecr-login@v2
-        if: matrix.changed == 'true'
-        id: ecr
-
-      - name: Ensure ECR repository exists
-        # First-ever run has nothing to push into: the repo is normally created by
-        # terraform-apply, which runs *after* this job. ECR doesn't auto-create repos
-        # on push, so bootstrap it here if missing. Idempotent — once terraform-apply
-        # runs, module.ecr just manages this same repository going forward.
-        run: |
-          aws ecr describe-repositories --repository-names "${{ matrix.name }}" \
-            || aws ecr create-repository --repository-name "${{ matrix.name }}"
-
-      - name: Build and push
-        # Skip if this exact tag was already pushed by an earlier attempt of
-        # this same run (e.g. re-running failed jobs after terraform-apply
-        # failed for an unrelated reason) — ECR repos are immutable-tagged,
-        # so re-pushing the same tag errors instead of being a harmless no-op.
-        if: matrix.changed == 'true'
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: |
-          if aws ecr describe-images --repository-name "${{ matrix.name }}" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
-            echo "Image already exists at this tag (earlier attempt of this run) — skipping."
-            exit 0
-          fi
-          docker build -t "$REGISTRY/${{ matrix.name }}:${{ github.sha }}" "${{ matrix.dir }}"
-          docker push "$REGISTRY/${{ matrix.name }}:${{ github.sha }}"
-
-      - name: Retag latest existing image for unchanged components
-        # terraform-apply deploys image_tag=github.sha for all 4 repos
-        # regardless of which ones this push actually changed. Without this,
-        # an unchanged component has no image at the new tag and Lambda
-        # creation fails with "Source image ... does not exist". Copy the
-        # most recently pushed image under the new tag instead of rebuilding.
-        # Also skips if already retagged by an earlier attempt of this run,
-        # for the same immutable-tag reason as the build-and-push step above.
-        if: matrix.changed == 'false'
-        run: |
-          if aws ecr describe-images --repository-name "${{ matrix.name }}" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
-            echo "Image already exists at this tag (earlier attempt of this run) — skipping."
-            exit 0
-          fi
-          SRC_TAG=$(aws ecr describe-images --repository-name "${{ matrix.name }}" \
-            --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text)
-          MANIFEST=$(aws ecr batch-get-image --repository-name "${{ matrix.name }}" \
-            --image-ids imageTag="$SRC_TAG" --query 'images[0].imageManifest' --output text)
-          MEDIA_TYPE=$(aws ecr batch-get-image --repository-name "${{ matrix.name }}" \
-            --image-ids imageTag="$SRC_TAG" --query 'images[0].imageManifestMediaType' --output text)
-          aws ecr put-image --repository-name "${{ matrix.name }}" \
-            --image-tag "${{ github.sha }}" \
-            --image-manifest "$MANIFEST" --image-manifest-media-type "$MEDIA_TYPE"
-
+  # Applies everything except the 3 Lambdas and the dashboard, each of which
+  # now has its own independent deploy-*.yml workflow (see instructor
+  # feedback: "three lambdas should be separately managed"). This job still
+  # applies the full untargeted root module — it just doesn't own any
+  # component's release cycle, so it reads back each Lambda's
+  # already-deployed image tag instead of assuming github.sha.
   terraform-apply:
     runs-on: ubuntu-latest
-    needs: [changes, build-and-push-images]
-    # `always()` is required because build-and-push-images is itself conditional
-    # (it's skipped entirely on a terraform-only change) — a plain `needs:` success
-    # check would block terraform-apply on a skip. But that same `always()` also
-    # meant a real build FAILURE didn't block this job either, which let a broken
-    # image tag reach `terraform apply`. Explicitly allow success-or-skipped only.
-    if: |
-      always() &&
-      needs.changes.result == 'success' &&
-      (needs.build-and-push-images.result == 'success' || needs.build-and-push-images.result == 'skipped')
+    needs: changes
+    if: needs.changes.outputs.terraform == 'true'
     environment: production   # manual-approval gate: a required reviewer must approve before this job runs
     defaults:
       run:
@@ -175,58 +78,19 @@ jobs:
 
       - run: terraform init
 
+      - name: Read back current per-Lambda image tags
+        id: tags
+        run: |
+          echo "ingest=$(terraform output -raw ingest_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "transform=$(terraform output -raw transform_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "dq=$(terraform output -raw dq_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+
       - name: Terraform apply
         run: |
           terraform apply -auto-approve \
-            -var="image_tag=${{ github.sha }}" \
+            -var="ingest_image_tag=${{ steps.tags.outputs.ingest }}" \
+            -var="transform_image_tag=${{ steps.tags.outputs.transform }}" \
+            -var="dq_image_tag=${{ steps.tags.outputs.dq }}" \
             -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
             -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
             -var="alert_email=${{ vars.ALERT_EMAIL }}"
-
-  deploy-dashboard:
-    runs-on: ubuntu-latest
-    needs: terraform-apply
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name yt-pipeline-dashboard --region ${{ env.AWS_REGION }}
-
-      - name: Ensure namespace exists
-        # kubectl apply -f k8s/ reads files alphabetically (deployment.yaml
-        # before namespace.yaml), so on a first-ever apply the Deployment/
-        # Service/ServiceAccount would otherwise fail with "namespace not
-        # found". Make namespace creation explicit and order-independent.
-        run: kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Create or update the dashboard trigger API key secret
-        run: |
-          kubectl create secret generic dashboard-api-key -n monitoring \
-            --from-literal=key="${{ secrets.DASHBOARD_TRIGGER_API_KEY }}" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Apply manifests
-        run: kubectl apply -f k8s/
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.5"
-
-      - name: Patch IRSA role ARN onto the service account
-        working-directory: terraform/envs/prod
-        run: |
-          terraform init
-          ROLE_ARN=$(terraform output -raw dashboard_role_arn)
-          kubectl annotate serviceaccount dashboard-sa -n monitoring \
-            eks.amazonaws.com/role-arn="$ROLE_ARN" --overwrite
-
-      - name: Roll out new dashboard image
-        run: |
-          REPO_URI=$(aws ecr describe-repositories --repository-names yt-dashboard --query 'repositories[0].repositoryUri' --output text)
-          kubectl set image deployment/dashboard dashboard="$REPO_URI:${{ github.sha }}" -n monitoring
-          kubectl rollout status deployment/dashboard -n monitoring --timeout=180s

@@ -16,7 +16,7 @@ variable "templates_path" {
 }
 
 variable "lambda_function_arns" {
-  description = "From module.lambda.function_arns — ensures Terraform orders Lambda creation before the state machine"
+  description = "Merged from the 3 per-Lambda modules' function_arn outputs — ensures Terraform orders Lambda creation before the state machine"
   type        = map(string)
 }
 

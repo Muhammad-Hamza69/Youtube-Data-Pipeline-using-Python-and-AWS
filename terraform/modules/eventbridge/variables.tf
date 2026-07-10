@@ -8,5 +8,5 @@ variable "eventbridge_role_arn" {
 
 variable "schedule_expression" {
   type    = string
-  default = "rate(6 hours)"
+  default = "rate(1 hour)"
 }

@@ -1,0 +1,87 @@
+name: Deploy yt-ingest
+
+# Independent release cycle for the ingest Lambda (instructor feedback:
+# "three lambdas should be separately managed"). Only runs when this
+# Lambda's own source or Terraform modules change.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lambdas/youtube_api_integstion/**"
+      - "terraform/modules/lambda-ingest/**"
+      - "terraform/modules/iam-ingest/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names yt-ingest \
+            || aws ecr create-repository --repository-name yt-ingest
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t "$REGISTRY/yt-ingest:${{ github.sha }}" lambdas/youtube_api_integstion
+          docker push "$REGISTRY/yt-ingest:${{ github.sha }}"
+
+  terraform-apply:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform/envs/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+
+      - run: terraform init
+
+      - name: Read back sibling Lambda image tags
+        # -target below only touches module.lambda_ingest/module.iam_ingest,
+        # but Terraform still requires a value for every declared root
+        # variable — pass back the already-deployed tags for the other two
+        # Lambdas unchanged so this apply doesn't drift their recorded state.
+        id: sibling_tags
+        run: |
+          echo "transform=$(terraform output -raw transform_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "dq=$(terraform output -raw dq_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform apply (yt-ingest only)
+        run: |
+          terraform apply -auto-approve \
+            -target=module.lambda_ingest -target=module.iam_ingest \
+            -var="ingest_image_tag=${{ github.sha }}" \
+            -var="transform_image_tag=${{ steps.sibling_tags.outputs.transform }}" \
+            -var="dq_image_tag=${{ steps.sibling_tags.outputs.dq }}" \
+            -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
+            -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
+            -var="alert_email=${{ vars.ALERT_EMAIL }}"

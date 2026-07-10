@@ -1,0 +1,71 @@
+name: Deploy dashboard
+
+# Independent release cycle for the dashboard (instructor feedback: "Go with
+# Argo CD"). Builds + pushes the image, then bumps the tag in
+# k8s/deployment.yaml and commits it back to main — ArgoCD (module.argocd in
+# terraform/envs/prod) watches k8s/ and rolls out the change from there.
+# No kubectl apply/set-image here anymore.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+
+permissions:
+  id-token: write
+  contents: write # needed to commit the image-tag bump back to main; every
+  # other workflow in this repo keeps contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  build-push-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names yt-dashboard \
+            || aws ecr create-repository --repository-name yt-dashboard
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t "$REGISTRY/yt-dashboard:${{ github.sha }}" dashboard
+          docker push "$REGISTRY/yt-dashboard:${{ github.sha }}"
+
+      - name: Ensure the dashboard's namespace and API key secret exist
+        # Deliberately not part of k8s/, so ArgoCD never sees or manages it
+        # (correctly — committing the secret value would leak it). Kept as a
+        # narrow imperative step rather than introducing a secrets-management
+        # tool for one value.
+        run: |
+          aws eks update-kubeconfig --name yt-pipeline-dashboard --region ${{ env.AWS_REGION }}
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic dashboard-api-key -n monitoring \
+            --from-literal=key="${{ secrets.DASHBOARD_TRIGGER_API_KEY }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Bump image tag in k8s/deployment.yaml
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          yq eval ".spec.template.spec.containers[0].image = \"$REGISTRY/yt-dashboard:${{ github.sha }}\"" -i k8s/deployment.yaml
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy: bump dashboard image to ${{ github.sha }} [skip ci]"
+          git push

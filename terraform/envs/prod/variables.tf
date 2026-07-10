@@ -15,8 +15,18 @@ variable "youtube_api_key" {
   sensitive   = true
 }
 
-variable "image_tag" {
-  description = "Git SHA tagging the Lambda/dashboard container images to deploy. No default on purpose — CI always passes this explicitly."
+variable "ingest_image_tag" {
+  description = "Git SHA tagging the yt-ingest image to deploy. No default on purpose — CI always passes this explicitly. Independent per Lambda so each has its own release cycle."
+  type        = string
+}
+
+variable "transform_image_tag" {
+  description = "Git SHA tagging the yt-json-to-parquet image to deploy. No default on purpose — CI always passes this explicitly."
+  type        = string
+}
+
+variable "dq_image_tag" {
+  description = "Git SHA tagging the yt-data-quality image to deploy. No default on purpose — CI always passes this explicitly."
   type        = string
 }
 

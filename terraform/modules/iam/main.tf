@@ -1,40 +1,10 @@
 # Reuses the exact permission statements from iam_permission/*.json (via the
 # account/region-parameterized copies in terraform/templates/) — only the
 # account ID substitution is new, the permission logic itself is untouched.
-
-# ── Lambda execution role ───────────────────────────────────────────────────
-
-data "aws_iam_policy_document" "lambda_trust" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["lambda.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "lambda" {
-  name               = "yt-data-pipeline-lambda-role"
-  assume_role_policy = data.aws_iam_policy_document.lambda_trust.json
-}
-
-resource "aws_iam_role_policy" "lambda" {
-  name = "yt-data-pipeline-lambda-access"
-  role = aws_iam_role.lambda.id
-  policy = templatefile("${var.templates_path}/lambda-access.json.tftpl", {
-    region                     = var.region
-    account_id                 = var.account_id
-    youtube_api_key_secret_arn = var.youtube_api_key_secret_arn
-  })
-}
-
-# Needed for package_type = "Image" Lambda functions.
-resource "aws_iam_role_policy_attachment" "lambda_basic_exec" {
-  role       = aws_iam_role.lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
+#
+# The Lambda execution role used to live here as one shared role for all 3
+# Lambdas. It's now split into terraform/modules/iam-ingest, iam-transform,
+# and iam-dq — each scoped to exactly what that one Lambda needs.
 
 # ── Glue job role ────────────────────────────────────────────────────────────
 

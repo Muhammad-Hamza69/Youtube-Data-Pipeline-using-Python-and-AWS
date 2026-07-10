@@ -1,7 +1,8 @@
-# The image below is a placeholder — deploy-dashboard (.github/workflows/deploy.yml)
-# overwrites it after every apply via `kubectl set image`. Env var values are
-# static since none of these resource names have random suffixes (fixed by
-# the Terraform modules), so no runtime templating is needed for them.
+# The image tag below is bumped by deploy-dashboard.yml on every dashboard
+# release and committed back to this file — ArgoCD watches this path and
+# syncs the change. Env var values are static since none of these resource
+# names have random suffixes (fixed by the Terraform modules), so no runtime
+# templating is needed for them.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,7 +21,7 @@ spec:
       serviceAccountName: dashboard-sa
       containers:
         - name: dashboard
-          image: REPLACE_WITH_ECR_IMAGE
+          image: 300617413029.dkr.ecr.us-east-1.amazonaws.com/yt-dashboard:05a59702fbac5e6475ffb9c24a2b838917b0d7bd
           ports:
             - containerPort: 8080
           env:

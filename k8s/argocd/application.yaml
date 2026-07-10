@@ -1,0 +1,28 @@
+# Applied once, manually, as a bootstrap step (see DEPLOYMENT.md) — not
+# managed by Terraform. Terraform's kubernetes_manifest resource validates
+# this CRD's schema at plan time, which doesn't exist yet on the same apply
+# that installs ArgoCD (module.argocd) — not worth fighting for a resource
+# this static (repo/path/branch, rarely touched after creation).
+#
+# Start with automated sync DISABLED (no `syncPolicy.automated` block).
+# Only enable it (see DEPLOYMENT.md) after confirming `kubectl diff -f k8s/`
+# shows zero drift against the live cluster — otherwise the first sync can
+# revert live state to whatever's committed, which is exactly what the two
+# now-fixed placeholders in k8s/deployment.yaml and k8s/serviceaccount.yaml
+# would have done before they held real values.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dashboard
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Muhammad-Hamza69/Youtube-Data-Pipeline-using-Python-and-AWS.git
+    targetRevision: main
+    path: k8s
+    directory:
+      exclude: "argocd/*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring

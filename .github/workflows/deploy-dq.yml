@@ -1,0 +1,87 @@
+name: Deploy yt-data-quality
+
+# Independent release cycle for the data-quality Lambda (instructor feedback:
+# "three lambdas should be separately managed"). Only runs when this
+# Lambda's own source or Terraform modules change.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data_quality/**"
+      - "terraform/modules/lambda-dq/**"
+      - "terraform/modules/iam-dq/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names yt-data-quality \
+            || aws ecr create-repository --repository-name yt-data-quality
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t "$REGISTRY/yt-data-quality:${{ github.sha }}" data_quality
+          docker push "$REGISTRY/yt-data-quality:${{ github.sha }}"
+
+  terraform-apply:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform/envs/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+
+      - run: terraform init
+
+      - name: Read back sibling Lambda image tags
+        # -target below only touches module.lambda_dq/module.iam_dq, but
+        # Terraform still requires a value for every declared root
+        # variable — pass back the already-deployed tags for the other two
+        # Lambdas unchanged so this apply doesn't drift their recorded state.
+        id: sibling_tags
+        run: |
+          echo "ingest=$(terraform output -raw ingest_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "transform=$(terraform output -raw transform_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform apply (yt-data-quality only)
+        run: |
+          terraform apply -auto-approve \
+            -target=module.lambda_dq -target=module.iam_dq \
+            -var="dq_image_tag=${{ github.sha }}" \
+            -var="ingest_image_tag=${{ steps.sibling_tags.outputs.ingest }}" \
+            -var="transform_image_tag=${{ steps.sibling_tags.outputs.transform }}" \
+            -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
+            -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
+            -var="alert_email=${{ vars.ALERT_EMAIL }}"
