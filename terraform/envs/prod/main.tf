@@ -20,6 +20,7 @@ module "glue" {
   source              = "../../modules/glue"
   glue_role_arn       = module.iam.glue_role_arn
   scripts_bucket_name = module.s3.bucket_names["scripts"]
+  bronze_bucket_name  = module.s3.bucket_names["bronze"]
 }
 
 module "ecr" {

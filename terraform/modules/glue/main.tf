@@ -28,6 +28,30 @@ resource "aws_s3_object" "silver_to_gold_script" {
   etag   = filemd5("${var.scripts_dir}/silver_to_gold_analytics.py")
 }
 
+resource "aws_glue_crawler" "bronze_raw_statistics" {
+  # bronze_to_silver_statistics.py reads via
+  # glueContext.create_dynamic_frame.from_catalog(database=bronze_database,
+  # table_name="raw_statistics", ...) — that table only exists if something
+  # crawls the Bronze S3 data to build it. Nothing did (this was missing
+  # entirely), so the job failed with getCatalogSource EntityNotFoundException
+  # on every run. table_prefix is empty since Step Functions hardcodes
+  # --bronze_table=raw_statistics, matching the table name a crawler over
+  # youtube/raw_statistics/ naturally produces (the folder name one level
+  # above the region=X Hive partitions).
+  name          = "yt-pipeline-bronze-raw-statistics-crawler"
+  role          = var.glue_role_arn
+  database_name = aws_glue_catalog_database.bronze.name
+
+  s3_target {
+    path = "s3://${var.bronze_bucket_name}/youtube/raw_statistics/"
+  }
+
+  schema_change_policy {
+    update_behavior = "UPDATE_IN_DATABASE"
+    delete_behavior = "LOG"
+  }
+}
+
 resource "aws_glue_job" "bronze_to_silver" {
   name              = "yt-data-pipeline-bronze-to-silver"
   role_arn          = var.glue_role_arn

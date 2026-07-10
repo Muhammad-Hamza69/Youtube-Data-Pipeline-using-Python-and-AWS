@@ -94,37 +94,39 @@ else:
     # Handle both Kaggle CSV format and YouTube API JSON format
     columns = set(df.columns)
 
-    if "snippet.title" in columns or "snippet__title" in columns:
-        # YouTube API format — flatten nested structure
-        logger.info("Detected YouTube API format — flattening...")
-        df = df.select(
-            F.col("id").alias("video_id"),
+    if "items" in columns:
+        # Live YouTube API format — each Bronze file is one raw API response
+        # (kind/etag/items/pageInfo/_pipeline_metadata), not pre-flattened
+        # per-video rows: "items" is a nested array of up to 50 videos, and
+        # region lives inside _pipeline_metadata rather than as a top-level
+        # column. Explode first, then pull nested snippet/statistics fields
+        # via Spark struct dot-path access (real nested structs from the
+        # JSON, not flattened column names — no backticks needed here).
+        logger.info("Detected YouTube API format — exploding items[] and flattening...")
+        exploded = df.select(
+            F.explode("items").alias("item"),
+            F.col("_pipeline_metadata.region").alias("region"),
+        )
+        df = exploded.select(
+            F.col("item.id").alias("video_id"),
             F.lit(datetime.utcnow().strftime("%y.%d.%m")).alias("trending_date"),
-            F.col("`snippet.title`").alias("title") if "snippet.title" in columns
-                else F.col("snippet__title").alias("title"),
-            F.col("`snippet.channelTitle`").alias("channel_title") if "snippet.channelTitle" in columns
-                else F.col("snippet__channelTitle").alias("channel_title"),
-            F.col("`snippet.categoryId`").cast(LongType()).alias("category_id") if "snippet.categoryId" in columns
-                else F.col("snippet__categoryId").cast(LongType()).alias("category_id"),
-            F.col("`snippet.publishedAt`").alias("publish_time") if "snippet.publishedAt" in columns
-                else F.col("snippet__publishedAt").alias("publish_time"),
-            F.col("`snippet.tags`").alias("tags") if "snippet.tags" in columns
-                else F.lit(None).cast(StringType()).alias("tags"),
-            F.col("`statistics.viewCount`").cast(LongType()).alias("views") if "statistics.viewCount" in columns
-                else F.col("statistics__viewCount").cast(LongType()).alias("views"),
-            F.col("`statistics.likeCount`").cast(LongType()).alias("likes") if "statistics.likeCount" in columns
-                else F.col("statistics__likeCount").cast(LongType()).alias("likes"),
-            F.col("`statistics.dislikeCount`").cast(LongType()).alias("dislikes") if "statistics.dislikeCount" in columns
-                else F.lit(0).cast(LongType()).alias("dislikes"),
-            F.col("`statistics.commentCount`").cast(LongType()).alias("comment_count") if "statistics.commentCount" in columns
-                else F.col("statistics__commentCount").cast(LongType()).alias("comment_count"),
-            F.col("`snippet.thumbnails.default.url`").alias("thumbnail_link") if "snippet.thumbnails.default.url" in columns
-                else F.lit(None).cast(StringType()).alias("thumbnail_link"),
+            F.col("item.snippet.title").alias("title"),
+            F.col("item.snippet.channelTitle").alias("channel_title"),
+            F.col("item.snippet.categoryId").cast(LongType()).alias("category_id"),
+            F.col("item.snippet.publishedAt").alias("publish_time"),
+            # tags arrives as a JSON array; join to a string to match the
+            # Kaggle-format branch's STRING type for the same column.
+            F.concat_ws(",", F.col("item.snippet.tags")).alias("tags"),
+            F.col("item.statistics.viewCount").cast(LongType()).alias("views"),
+            F.col("item.statistics.likeCount").cast(LongType()).alias("likes"),
+            # YouTube API v3 no longer exposes a public dislike count.
+            F.lit(0).cast(LongType()).alias("dislikes"),
+            F.col("item.statistics.commentCount").cast(LongType()).alias("comment_count"),
+            F.col("item.snippet.thumbnails.default.url").alias("thumbnail_link"),
             F.lit(False).alias("comments_disabled"),
             F.lit(False).alias("ratings_disabled"),
             F.lit(False).alias("video_error_or_removed"),
-            F.col("`snippet.description`").alias("description") if "snippet.description" in columns
-                else F.col("snippet__description").alias("description"),
+            F.col("item.snippet.description").alias("description"),
             F.col("region"),
         )
     else:

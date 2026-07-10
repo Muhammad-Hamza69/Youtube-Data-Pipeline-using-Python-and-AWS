@@ -11,3 +11,8 @@ variable "scripts_dir" {
   type        = string
   default     = "../../../glue_jobs"
 }
+
+variable "bronze_bucket_name" {
+  description = "Bronze S3 bucket crawled to populate the bronze Glue Catalog table that bronze_to_silver_statistics.py reads from."
+  type        = string
+}
