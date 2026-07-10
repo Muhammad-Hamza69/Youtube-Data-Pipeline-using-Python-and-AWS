@@ -51,6 +51,7 @@ resource "aws_lambda_function" "data_quality" {
   environment {
     variables = {
       GLUE_DB_SILVER      = var.glue_silver_db
+      ATHENA_WORKGROUP    = var.athena_workgroup_name
       SNS_ALERT_TOPIC_ARN = var.sns_topic_arn
       DQ_MIN_ROW_COUNT    = tostring(var.dq_min_row_count)
       DQ_MAX_NULL_PERCENT = tostring(var.dq_max_null_percent)

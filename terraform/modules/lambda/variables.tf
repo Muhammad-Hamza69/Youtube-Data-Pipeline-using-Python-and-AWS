@@ -51,3 +51,8 @@ variable "dq_max_null_percent" {
   type    = number
   default = 5.0
 }
+
+variable "athena_workgroup_name" {
+  description = "Athena workgroup with a configured output location, used by yt-data-quality's read_sql_query calls (the 'primary' workgroup has no output location by default)."
+  type        = string
+}

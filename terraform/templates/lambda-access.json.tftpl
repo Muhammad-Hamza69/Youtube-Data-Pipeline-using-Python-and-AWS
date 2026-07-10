@@ -18,6 +18,20 @@
             ]
         },
         {
+            "Sid": "AthenaResultsWrite",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:GetBucketLocation",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::yt-pipeline-gold-${region}-${account_id}",
+                "arn:aws:s3:::yt-pipeline-gold-${region}-${account_id}/athena-dashboard-results/*"
+            ]
+        },
+        {
             "Sid": "GlueAccess",
             "Effect": "Allow",
             "Action": [
@@ -45,7 +59,8 @@
             "Action": [
                 "athena:StartQueryExecution",
                 "athena:GetQueryExecution",
-                "athena:GetQueryResults"
+                "athena:GetQueryResults",
+                "athena:GetWorkGroup"
             ],
             "Resource": "*"
         },

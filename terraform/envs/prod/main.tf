@@ -47,6 +47,7 @@ module "lambda" {
   sns_topic_arn              = module.sns.topic_arn
   youtube_api_key_secret_arn = module.secrets.youtube_api_key_secret_arn
   glue_silver_db             = module.glue.database_names["silver"]
+  athena_workgroup_name      = module.athena.workgroup_name
 }
 
 module "stepfunctions" {
