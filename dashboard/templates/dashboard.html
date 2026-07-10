@@ -24,7 +24,6 @@
     .stat .label { color: #9aa4b2; font-size: 0.85rem; }
     button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 0.5rem 1rem; font-size: 0.9rem; cursor: pointer; }
     button:disabled { background: #3a3f4b; cursor: not-allowed; }
-    input[type="password"] { background: #0f1117; border: 1px solid #2a2e37; color: #e6e6e6; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem; }
     #trigger-result, #query-result { margin-top: 0.75rem; font-size: 0.9rem; }
     .query-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   </style>
@@ -35,7 +34,6 @@
   <h2>Trigger a Pipeline Run</h2>
   <div class="card">
     {% set is_running = executions | selectattr('status', 'equalto', 'RUNNING') | list %}
-    <input type="password" id="api-key" placeholder="API key">
     <button id="trigger-btn" onclick="triggerRun()" {{ 'disabled' if is_running else '' }}>
       {{ 'Run in progress…' if is_running else 'Trigger Pipeline Run' }}
     </button>
@@ -98,11 +96,12 @@
 
   <script>
     async function triggerRun() {
-      const key = document.getElementById('api-key').value;
       const resultEl = document.getElementById('trigger-result');
       resultEl.textContent = 'Triggering…';
       try {
-        const resp = await fetch('/trigger', { method: 'POST', headers: { 'X-API-Key': key } });
+        // No auth header needed: the browser automatically attaches the
+        // Basic Auth credentials it cached from loading this page.
+        const resp = await fetch('/trigger', { method: 'POST' });
         const body = await resp.json();
         resultEl.textContent = resp.ok
           ? `Started execution: ${body.name}`

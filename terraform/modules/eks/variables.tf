@@ -17,7 +17,7 @@ variable "vpc_cidr" {
 }
 
 variable "allowed_dashboard_cidr" {
-  description = "CIDR allowed to reach the dashboard's NodePort (30080). Set to your office/VPN CIDR — no default on purpose, since the dashboard pod carries AWS read credentials via IRSA and must not be silently left open to 0.0.0.0/0."
+  description = "CIDR allowed to reach the dashboard's NodePort (30080). No default on purpose — this is a deliberate choice, not a rubber stamp. If your IP is stable, use your office/VPN CIDR; the app itself has no other protection at the network layer. If your IP changes across unrelated ISP ranges (making CIDR allowlisting impractical), 0.0.0.0/0 is acceptable ONLY because dashboard/app.py requires HTTP Basic Auth (TRIGGER_API_KEY) on every route except /healthz — the app-level secret is the real boundary in that case, not the network."
   type        = string
 }
 

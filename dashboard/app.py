@@ -5,15 +5,19 @@ Interactive front door into the YouTube data pipeline, running on Kubernetes
 (EKS) as a separate concern from the pipeline itself: shows recent Step
 Functions executions, the last data-quality check result, and Gold table
 row counts, and can trigger a new pipeline run and run a small set of
-predefined Gold-table queries. All AWS access is via IRSA; triggering a run
-additionally requires a shared-secret API key, since it costs real YouTube
-API quota and AWS compute each time.
+predefined Gold-table queries. All AWS access is via IRSA.
+
+The NodePort is reachable from any IP (the operator's IP changes too often
+for a CIDR allowlist to be practical), so every route except /healthz
+requires HTTP Basic Auth instead — the browser's native login prompt caches
+the credentials for the session and automatically attaches them to the
+page's own fetch() calls too, so there's no separate in-page API key field.
 
 Environment Variables:
     STATE_MACHINE_ARN   — the yt-data-pipeline state machine ARN
     ATHENA_WORKGROUP     — the dashboard's own Athena workgroup
     GOLD_DATABASE        — yt_pipeline_gold_db
-    TRIGGER_API_KEY       — shared secret required (X-API-Key header) to POST /trigger
+    TRIGGER_API_KEY       — shared secret; any username + this as the password via HTTP Basic Auth
     AWS_REGION           — set automatically by EKS/IRSA
 """
 
@@ -23,7 +27,7 @@ import time
 import logging
 
 import boto3
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, Response, render_template, request, jsonify
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -169,11 +173,18 @@ def get_dashboard_data():
     return data
 
 
-def _check_api_key():
-    """Validate the X-API-Key header. Returns an error response tuple, or None if valid."""
-    provided = (request.headers.get("X-API-Key") or "").strip()
-    if provided != TRIGGER_API_KEY:
-        return jsonify({"error": "invalid or missing X-API-Key header"}), 401
+@app.before_request
+def _require_auth():
+    """HTTP Basic Auth on every route except /healthz (hit unauthenticated by k8s probes)."""
+    if request.path == "/healthz":
+        return None
+    auth = request.authorization
+    if auth is None or auth.password != TRIGGER_API_KEY:
+        return Response(
+            "Authentication required",
+            401,
+            {"WWW-Authenticate": 'Basic realm="YT Pipeline Dashboard"'},
+        )
     return None
 
 
@@ -191,11 +202,7 @@ def healthz():
 
 @app.route("/trigger", methods=["POST"])
 def trigger():
-    """Start a new pipeline execution. Requires a valid X-API-Key header."""
-    auth_error = _check_api_key()
-    if auth_error:
-        return auth_error
-
+    """Start a new pipeline execution (auth already enforced by _require_auth)."""
     running = sfn_client.list_executions(
         stateMachineArn=STATE_MACHINE_ARN, statusFilter="RUNNING", maxResults=1
     )["executions"]
