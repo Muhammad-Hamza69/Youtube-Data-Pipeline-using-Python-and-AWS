@@ -7,6 +7,7 @@
             "Action": [
                 "s3:GetObject",
                 "s3:PutObject",
+                "s3:DeleteObject",
                 "s3:ListBucket"
             ],
             "Resource": [
@@ -26,7 +27,9 @@
                 "glue:UpdateTable",
                 "glue:GetPartitions",
                 "glue:CreatePartition",
-                "glue:BatchCreatePartition"
+                "glue:BatchCreatePartition",
+                "glue:DeletePartition",
+                "glue:BatchDeletePartition"
             ],
             "Resource": "*"
         },
