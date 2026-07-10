@@ -106,10 +106,18 @@ jobs:
             || aws ecr create-repository --repository-name "${{ matrix.name }}"
 
       - name: Build and push
+        # Skip if this exact tag was already pushed by an earlier attempt of
+        # this same run (e.g. re-running failed jobs after terraform-apply
+        # failed for an unrelated reason) — ECR repos are immutable-tagged,
+        # so re-pushing the same tag errors instead of being a harmless no-op.
         if: matrix.changed == 'true'
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
+          if aws ecr describe-images --repository-name "${{ matrix.name }}" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
+            echo "Image already exists at this tag (earlier attempt of this run) — skipping."
+            exit 0
+          fi
           docker build -t "$REGISTRY/${{ matrix.name }}:${{ github.sha }}" "${{ matrix.dir }}"
           docker push "$REGISTRY/${{ matrix.name }}:${{ github.sha }}"
 
@@ -119,8 +127,14 @@ jobs:
         # an unchanged component has no image at the new tag and Lambda
         # creation fails with "Source image ... does not exist". Copy the
         # most recently pushed image under the new tag instead of rebuilding.
+        # Also skips if already retagged by an earlier attempt of this run,
+        # for the same immutable-tag reason as the build-and-push step above.
         if: matrix.changed == 'false'
         run: |
+          if aws ecr describe-images --repository-name "${{ matrix.name }}" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
+            echo "Image already exists at this tag (earlier attempt of this run) — skipping."
+            exit 0
+          fi
           SRC_TAG=$(aws ecr describe-images --repository-name "${{ matrix.name }}" \
             --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text)
           MANIFEST=$(aws ecr batch-get-image --repository-name "${{ matrix.name }}" \
