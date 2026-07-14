@@ -10,3 +10,4 @@ COPY dq_lambda.py ${LAMBDA_TASK_ROOT}
 
 CMD ["dq_lambda.lambda_handler"]
 
+
