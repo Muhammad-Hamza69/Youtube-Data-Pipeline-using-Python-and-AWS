@@ -108,6 +108,30 @@ resource "aws_eks_cluster" "this" {
   depends_on = [aws_iam_role_policy_attachment.cluster_policy]
 }
 
+# bootstrap_cluster_creator_admin_permissions only grants admin to whoever's
+# credentials actually ran CreateCluster. In the normal CI flow that's
+# gha-deploy-role (deploy.yml applies this module), so this would be
+# redundant — but nothing stops someone from applying this module locally
+# (e.g. recovering from a full teardown) under a different IAM identity, which
+# would leave gha-deploy-role with zero Kubernetes RBAC and break every
+# subsequent workflow that runs kubectl (deploy-dashboard.yml's namespace/
+# secret step). Granting it explicitly makes cluster access independent of
+# who happened to run apply.
+resource "aws_eks_access_entry" "gha_deploy" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = "arn:aws:iam::${var.account_id}:role/gha-deploy-role"
+}
+
+resource "aws_eks_access_policy_association" "gha_deploy_admin" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_eks_access_entry.gha_deploy.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+}
+
 # ── Cluster OIDC provider (for IRSA) ─────────────────────────────────────────
 
 data "tls_certificate" "eks" {

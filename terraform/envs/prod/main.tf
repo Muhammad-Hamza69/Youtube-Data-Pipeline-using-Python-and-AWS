@@ -128,6 +128,7 @@ module "eventbridge" {
 module "eks" {
   source                 = "../../modules/eks"
   region                 = var.region
+  account_id             = var.account_id
   node_instance_type     = var.eks_node_instance_type
   allowed_dashboard_cidr = var.allowed_dashboard_cidr
 }

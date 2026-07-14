@@ -25,3 +25,7 @@ variable "cluster_name" {
   type    = string
   default = "yt-pipeline-dashboard"
 }
+
+variable "account_id" {
+  type = string
+}
