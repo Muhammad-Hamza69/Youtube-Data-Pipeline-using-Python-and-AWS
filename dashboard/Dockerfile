@@ -1,3 +1,4 @@
+# Rebuild trigger: AWS environment fully recreated from scratch (2026-07-15).
 FROM python:3.11-slim
 
 WORKDIR /app
