@@ -1,5 +1,6 @@
 # Rebuild trigger: AWS environment recreated from scratch (2026-07-17).
 # Rebuild trigger: AWS environment recreated from scratch (2026-07-16).
+
 FROM public.ecr.aws/lambda/python:3.11
 
 COPY requirements.txt .
