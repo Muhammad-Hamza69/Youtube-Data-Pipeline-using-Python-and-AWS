@@ -141,6 +141,21 @@ data "aws_iam_policy_document" "dbt" {
   }
 
   statement {
+    # dbt-athena runs CREATE SCHEMA IF NOT EXISTS for every target schema on
+    # each invocation, unconditionally — even though curated_db/enriched_db
+    # already exist and this is a no-op every time. CreateDatabase's target
+    # doesn't exist as a resource yet from IAM's perspective, so like
+    # GetDatabases this can only be scoped to the catalog, not a specific
+    # database ARN. Confirmed against a real dbt build failure
+    # (AccessDeniedException on glue:CreateDatabase) after the previous
+    # GetDatabases/results-write fixes got it further than ever before.
+    sid       = "GlueCreateDatabase"
+    effect    = "Allow"
+    actions   = ["glue:CreateDatabase"]
+    resources = ["arn:aws:glue:${var.region}:${var.account_id}:catalog"]
+  }
+
+  statement {
     sid    = "AthenaQuery"
     effect = "Allow"
     actions = [
