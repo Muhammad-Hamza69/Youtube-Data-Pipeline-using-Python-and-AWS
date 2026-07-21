@@ -113,6 +113,20 @@ data "aws_iam_policy_document" "dbt" {
   }
 
   statement {
+    # dbt-athena's list_schemas() calls the catalog-wide GetDatabases (plural)
+    # API, distinct from the per-database GetDatabase (singular) granted
+    # above — GetDatabases has no per-database resource scoping, it always
+    # lists every database in the catalog, so this can only be granted at
+    # the catalog level. Confirmed against a real dbt build failure
+    # (AccessDeniedException on glue:GetDatabases) — every dbt invocation
+    # calls this early, before touching any specific table.
+    sid       = "GlueListDatabases"
+    effect    = "Allow"
+    actions   = ["glue:GetDatabases"]
+    resources = ["arn:aws:glue:${var.region}:${var.account_id}:catalog"]
+  }
+
+  statement {
     sid    = "AthenaQuery"
     effect = "Allow"
     actions = [
