@@ -50,12 +50,31 @@ resource "aws_lakeformation_resource" "enriched" {
 }
 
 # ── Raw: the raw-transform Lambda writes here ───────────────────────────────
+#
+# Lake Formation's grantable permission set differs by resource type: a
+# `database {}` grant only accepts CREATE_TABLE/ALTER/DROP/DESCRIBE — SELECT
+# and INSERT are table-level-only permissions and mixing them into one grant
+# targeting a database fails with a generic "Permissions modification is
+# invalid" (confirmed against real AWS during this project's first apply).
+# So every principal below gets two grants: one on the database (schema-level
+# DDL) and one on `table { wildcard = true }` within that database (row-level
+# DML on every table in it, present and future) — not one combined grant.
 
 resource "aws_lakeformation_permissions" "raw_transform_db" {
   principal   = var.raw_transform_role_arn
-  permissions = ["CREATE_TABLE", "ALTER", "INSERT", "SELECT", "DESCRIBE"]
+  permissions = ["CREATE_TABLE", "ALTER", "DESCRIBE"]
   database {
     name = var.raw_database_name
+  }
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+resource "aws_lakeformation_permissions" "raw_transform_tables" {
+  principal   = var.raw_transform_role_arn
+  permissions = ["SELECT", "INSERT", "DESCRIBE"]
+  table {
+    database_name = var.raw_database_name
+    wildcard      = true
   }
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
@@ -73,18 +92,38 @@ resource "aws_lakeformation_permissions" "raw_transform_location" {
 
 resource "aws_lakeformation_permissions" "dbt_raw_read" {
   principal   = var.dbt_role_arn
-  permissions = ["SELECT", "DESCRIBE"]
+  permissions = ["DESCRIBE"]
   database {
     name = var.raw_database_name
   }
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
 
+resource "aws_lakeformation_permissions" "dbt_raw_tables_read" {
+  principal   = var.dbt_role_arn
+  permissions = ["SELECT", "DESCRIBE"]
+  table {
+    database_name = var.raw_database_name
+    wildcard      = true
+  }
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
 resource "aws_lakeformation_permissions" "dbt_curated_db" {
   principal   = var.dbt_role_arn
-  permissions = ["CREATE_TABLE", "ALTER", "DROP", "INSERT", "SELECT", "DESCRIBE"]
+  permissions = ["CREATE_TABLE", "ALTER", "DROP", "DESCRIBE"]
   database {
     name = var.curated_database_name
+  }
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+resource "aws_lakeformation_permissions" "dbt_curated_tables" {
+  principal   = var.dbt_role_arn
+  permissions = ["SELECT", "INSERT", "DESCRIBE"]
+  table {
+    database_name = var.curated_database_name
+    wildcard      = true
   }
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
@@ -100,9 +139,19 @@ resource "aws_lakeformation_permissions" "dbt_curated_location" {
 
 resource "aws_lakeformation_permissions" "dbt_enriched_db" {
   principal   = var.dbt_role_arn
-  permissions = ["CREATE_TABLE", "ALTER", "DROP", "INSERT", "SELECT", "DESCRIBE"]
+  permissions = ["CREATE_TABLE", "ALTER", "DROP", "DESCRIBE"]
   database {
     name = var.enriched_database_name
+  }
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+resource "aws_lakeformation_permissions" "dbt_enriched_tables" {
+  principal   = var.dbt_role_arn
+  permissions = ["SELECT", "INSERT", "DESCRIBE"]
+  table {
+    database_name = var.enriched_database_name
+    wildcard      = true
   }
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
@@ -120,9 +169,19 @@ resource "aws_lakeformation_permissions" "dbt_enriched_location" {
 
 resource "aws_lakeformation_permissions" "dashboard_enriched_read" {
   principal   = var.dashboard_role_arn
-  permissions = ["SELECT", "DESCRIBE"]
+  permissions = ["DESCRIBE"]
   database {
     name = var.enriched_database_name
+  }
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+resource "aws_lakeformation_permissions" "dashboard_enriched_tables_read" {
+  principal   = var.dashboard_role_arn
+  permissions = ["SELECT", "DESCRIBE"]
+  table {
+    database_name = var.enriched_database_name
+    wildcard      = true
   }
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
@@ -132,9 +191,20 @@ resource "aws_lakeformation_permissions" "dashboard_enriched_read" {
 resource "aws_lakeformation_permissions" "quicksight_enriched_read" {
   count       = var.quicksight_role_arn != null ? 1 : 0
   principal   = var.quicksight_role_arn
-  permissions = ["SELECT", "DESCRIBE"]
+  permissions = ["DESCRIBE"]
   database {
     name = var.enriched_database_name
+  }
+  depends_on = [aws_lakeformation_data_lake_settings.this]
+}
+
+resource "aws_lakeformation_permissions" "quicksight_enriched_tables_read" {
+  count       = var.quicksight_role_arn != null ? 1 : 0
+  principal   = var.quicksight_role_arn
+  permissions = ["SELECT", "DESCRIBE"]
+  table {
+    database_name = var.enriched_database_name
+    wildcard      = true
   }
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
