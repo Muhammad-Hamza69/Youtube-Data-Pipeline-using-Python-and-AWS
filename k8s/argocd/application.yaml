@@ -22,6 +22,7 @@ spec:
     targetRevision: main
     path: k8s
     directory:
+      recurse: true
       exclude: "argocd/*"
   destination:
     server: https://kubernetes.default.svc
