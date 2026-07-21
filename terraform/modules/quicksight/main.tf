@@ -1,24 +1,83 @@
-# QuickSight is already subscribed/enabled on this account (a one-time
-# console step Terraform can't cleanly automate — edition choice, account
-# name, notification email) — this module only wires up the "connected
-# datasets ready" half: an Athena data source + one SPICE dataset per
-# Enriched table, refreshed daily. It deliberately does NOT hand-author an
-# aws_quicksight_dashboard/aws_quicksight_analysis resource — that JSON
-# `definition` is enormous and not meaningfully reviewable as Terraform
-# diffs. Build the actual KPI dashboard once, manually, in the QuickSight
-# console once these datasets show data — same kind of deliberate manual
-# bootstrap exception k8s/argocd/application.yaml documents for itself.
+# QuickSight subscription now exists on this account (Enterprise edition,
+# confirmed via `aws quicksight describe-account-subscription`). This module
+# wires up the Athena data source + one SPICE dataset per Enriched table,
+# refreshed daily, plus the IAM permissions QuickSight's own auto-created
+# service role needs to actually read Enriched through Lake Formation. It
+# deliberately does NOT hand-author the aws_quicksight_dashboard/analysis
+# `definition` here — that JSON is built and applied via the AWS CLI
+# (scripts/quicksight_dashboard.json / a one-time `aws quicksight
+# create-dashboard` call) since it's genuinely large visual layout content,
+# not infrastructure wiring, and iterates far faster outside Terraform's
+# HCL translation of the same JSON. This mirrors the same "manual/scripted
+# for the one thing that's really content, not infra" line already drawn for
+# k8s/argocd/application.yaml.
 
 data "aws_caller_identity" "current" {}
 
-# NOTE: aws_quicksight_data_set / aws_quicksight_refresh_schedule have had
-# real schema changes across aws provider versions (nested block names and
-# required fields both shifted at various points) — verify this module's
-# resource arguments against the pinned provider version's current docs
-# (terraform providers schema -json, or the registry docs for that exact
-# version) before the first real apply. This is flagged explicitly because
-# confidence here is lower than the rest of this plan — QuickSight's
-# Terraform support is the newest/most-changed corner of it.
+# QuickSight auto-creates this the first time you connect any data source
+# via IAM-role-based access — not created by this module, just extended
+# with the permissions it needs for this specific pipeline.
+data "aws_iam_role" "quicksight_service" {
+  name = "aws-quicksight-service-role-v0"
+}
+
+data "aws_iam_policy_document" "quicksight_service_permissions" {
+  statement {
+    sid    = "EnrichedRead"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+    ]
+    resources = [var.enriched_bucket_arn, "${var.enriched_bucket_arn}/*"]
+  }
+
+  statement {
+    sid       = "QuicksightResultsWrite"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${var.enriched_bucket_arn}/athena-quicksight-results/*"]
+  }
+
+  statement {
+    sid    = "GlueEnrichedRead"
+    effect = "Allow"
+    actions = [
+      "glue:GetTable",
+      "glue:GetTables",
+      "glue:GetDatabase",
+      "glue:GetPartitions",
+    ]
+    resources = [
+      "arn:aws:glue:${var.region}:${var.account_id}:catalog",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.enriched_database_name}",
+      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.enriched_database_name}/*",
+    ]
+  }
+
+  statement {
+    # Same catalog-wide requirement dbt's list_schemas() hit — Athena's own
+    # schema-discovery calls this regardless of caller.
+    sid       = "GlueListDatabases"
+    effect    = "Allow"
+    actions   = ["glue:GetDatabases"]
+    resources = ["arn:aws:glue:${var.region}:${var.account_id}:catalog"]
+  }
+
+  statement {
+    sid       = "LakeFormationDataAccess"
+    effect    = "Allow"
+    actions   = ["lakeformation:GetDataAccess"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "quicksight_service" {
+  name   = "yt-pipeline-quicksight-enriched-access"
+  role   = data.aws_iam_role.quicksight_service.name
+  policy = data.aws_iam_policy_document.quicksight_service_permissions.json
+}
 
 # A dedicated workgroup, isolated from both the dashboard's and the
 # pipeline's — same cost/query-tracking isolation rationale already
@@ -64,30 +123,77 @@ resource "aws_quicksight_data_source" "athena" {
   }
 }
 
+# Real column schemas (read directly from Glue after the first successful
+# dbt build — the placeholder-column approach this module used before any
+# tables existed is no longer needed). "categories" (array<string> on
+# channel_analytics) is deliberately omitted: QuickSight's relational_table
+# input_columns doesn't have a array/list column type, and it isn't needed
+# for the KPI/ranking visuals this dataset drives.
 locals {
-  enriched_tables = {
-    trending_analytics = "Trending Analytics"
-    channel_analytics  = "Channel Analytics"
-    category_analytics = "Category Analytics"
+  enriched_datasets = {
+    trending_analytics = {
+      name = "Trending Analytics"
+      columns = [
+        { name = "region", type = "STRING" },
+        { name = "trending_date_parsed", type = "DATETIME" },
+        { name = "total_videos", type = "INTEGER" },
+        { name = "total_views", type = "INTEGER" },
+        { name = "total_likes", type = "INTEGER" },
+        { name = "total_comments", type = "INTEGER" },
+        { name = "avg_engagement_rate", type = "DECIMAL" },
+        { name = "avg_like_ratio", type = "DECIMAL" },
+      ]
+    }
+    channel_analytics = {
+      name = "Channel Analytics"
+      columns = [
+        { name = "channel_title", type = "STRING" },
+        { name = "region", type = "STRING" },
+        { name = "total_videos", type = "INTEGER" },
+        { name = "total_views", type = "INTEGER" },
+        { name = "avg_engagement_rate", type = "DECIMAL" },
+        { name = "rank_in_region", type = "INTEGER" },
+      ]
+    }
+    category_analytics = {
+      name = "Category Analytics"
+      columns = [
+        { name = "region", type = "STRING" },
+        { name = "trending_date_parsed", type = "DATETIME" },
+        { name = "category_id", type = "STRING" },
+        { name = "category_name", type = "STRING" },
+        { name = "total_videos", type = "INTEGER" },
+        { name = "total_views", type = "INTEGER" },
+        { name = "view_share_pct", type = "DECIMAL" },
+      ]
+    }
   }
 }
 
 resource "aws_quicksight_data_set" "enriched" {
-  for_each    = local.enriched_tables
+  for_each    = local.enriched_datasets
   data_set_id = "yt-pipeline-${each.key}"
-  name        = each.value
+  name        = each.value.name
   import_mode = "SPICE"
 
   physical_table_map {
-    physical_table_map_id = each.key
+    # physicalTableMap keys must match [0-9a-zA-Z-]* — underscores (as in
+    # the actual table names) aren't allowed, confirmed via a real
+    # ValidationException. This ID is purely an internal identifier, not
+    # the table name itself, so any valid string works.
+    physical_table_map_id = replace(each.key, "_", "-")
     relational_table {
       data_source_arn = aws_quicksight_data_source.athena.arn
       catalog         = "AwsDataCatalog"
       schema          = var.enriched_database_name
       name            = each.key
-      input_columns {
-        name = "placeholder"
-        type = "STRING"
+
+      dynamic "input_columns" {
+        for_each = each.value.columns
+        content {
+          name = input_columns.value.name
+          type = input_columns.value.type
+        }
       }
     }
   }
@@ -106,14 +212,6 @@ resource "aws_quicksight_data_set" "enriched" {
       "quicksight:CancelIngestion",
       "quicksight:UpdateDataSetPermissions",
     ]
-  }
-
-  lifecycle {
-    # relational_table.input_columns is normally auto-discovered by
-    # QuickSight from the actual Athena table schema on first refresh —
-    # the placeholder above just satisfies Terraform's schema requirement
-    # at plan time; don't fight QuickSight over the real column list.
-    ignore_changes = [physical_table_map]
   }
 }
 

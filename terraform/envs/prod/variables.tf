@@ -52,9 +52,8 @@ variable "alert_email" {
 }
 
 variable "quicksight_user_arn" {
-  description = "QuickSight user ARN to grant on the Athena data source/datasets. Defaults to empty and is currently unused — module.quicksight is commented out in main.tf until this account actually has a QuickSight subscription (confirmed absent as of this deploy). Once it exists, remove this default, re-wire module.quicksight, and pass the real ARN via -var or the QUICKSIGHT_USER_ARN CI variable."
+  description = "QuickSight user ARN to grant on the Athena data source/datasets. No default — account-specific, pass via -var or the QUICKSIGHT_USER_ARN CI variable."
   type        = string
-  default     = ""
 }
 
 variable "lakeformation_admin_arns" {

@@ -168,10 +168,10 @@ module "lakeformation" {
   raw_transform_role_arn = module.iam_transform.role_arn
   dbt_role_arn           = module.irsa_dbt.dbt_role_arn
   dashboard_role_arn     = module.irsa.dashboard_role_arn
-  # null until module.quicksight is wired back up (see the commented-out
-  # block below) — no QuickSight subscription exists on this account yet, so
-  # granting to a role that doesn't exist would be premature.
-  quicksight_role_arn = null
+  # QuickSight's account-standard auto-created service role — confirmed to
+  # exist via `aws iam get-role --role-name aws-quicksight-service-role-v0`
+  # now that the subscription is active.
+  quicksight_role_arn = "arn:aws:iam::${var.account_id}:role/service-role/aws-quicksight-service-role-v0"
 }
 
 module "stepfunctions" {
@@ -199,20 +199,15 @@ module "cloudtrail" {
 }
 
 
-# module.quicksight is deliberately NOT wired up yet: this account has no
-# QuickSight subscription (confirmed via
-# `aws quicksight describe-account-subscription` -> ResourceNotFoundException
-# in us-east-1/us-west-2/us-east-2). The module itself
-# (terraform/modules/quicksight) is fully written and ready — once the
-# one-time console signup (edition + notification email) is actually
-# completed, re-add this block:
-#
-# module "quicksight" {
-#   source                 = "../../modules/quicksight"
-#   quicksight_user_arn    = var.quicksight_user_arn
-#   enriched_bucket_name   = module.s3.bucket_names["enriched"]
-#   enriched_database_name = module.glue.database_names["enriched"]
-# }
+module "quicksight" {
+  source                 = "../../modules/quicksight"
+  quicksight_user_arn    = var.quicksight_user_arn
+  enriched_bucket_name   = module.s3.bucket_names["enriched"]
+  enriched_bucket_arn    = module.s3.bucket_arns["enriched"]
+  enriched_database_name = module.glue.database_names["enriched"]
+  region                 = var.region
+  account_id             = var.account_id
+}
 
 # GitOps for the dashboard AND dbt's namespace/ServiceAccount (instructor
 # feedback: "Go with Argo CD"). Watches k8s/ in this repo — see

@@ -7,6 +7,18 @@ variable "enriched_bucket_name" {
   type = string
 }
 
+variable "enriched_bucket_arn" {
+  type = string
+}
+
 variable "enriched_database_name" {
+  type = string
+}
+
+variable "region" {
+  type = string
+}
+
+variable "account_id" {
   type = string
 }
