@@ -1,0 +1,151 @@
+{
+  "DataSetIdentifierDeclarations": [
+    { "Identifier": "trending", "DataSetArn": "arn:aws:quicksight:us-east-1:300617413029:dataset/yt-pipeline-trending_analytics" },
+    { "Identifier": "channels", "DataSetArn": "arn:aws:quicksight:us-east-1:300617413029:dataset/yt-pipeline-channel_analytics" },
+    { "Identifier": "categories", "DataSetArn": "arn:aws:quicksight:us-east-1:300617413029:dataset/yt-pipeline-category_analytics" }
+  ],
+  "Sheets": [
+    {
+      "SheetId": "overview",
+      "Name": "YouTube Trending Insights",
+      "Visuals": [
+        {
+          "KPIVisual": {
+            "VisualId": "kpi-total-views",
+            "Title": { "Visibility": "VISIBLE", "FormatText": { "PlainText": "Total Views" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "Values": [
+                  {
+                    "NumericalMeasureField": {
+                      "FieldId": "kpi-total-views-field",
+                      "Column": { "DataSetIdentifier": "trending", "ColumnName": "total_views" },
+                      "AggregationFunction": { "SimpleNumericalAggregation": "SUM" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "KPIVisual": {
+            "VisualId": "kpi-total-videos",
+            "Title": { "Visibility": "VISIBLE", "FormatText": { "PlainText": "Total Trending Videos" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "Values": [
+                  {
+                    "NumericalMeasureField": {
+                      "FieldId": "kpi-total-videos-field",
+                      "Column": { "DataSetIdentifier": "trending", "ColumnName": "total_videos" },
+                      "AggregationFunction": { "SimpleNumericalAggregation": "SUM" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "KPIVisual": {
+            "VisualId": "kpi-avg-engagement",
+            "Title": { "Visibility": "VISIBLE", "FormatText": { "PlainText": "Avg Engagement Rate" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "Values": [
+                  {
+                    "NumericalMeasureField": {
+                      "FieldId": "kpi-avg-engagement-field",
+                      "Column": { "DataSetIdentifier": "trending", "ColumnName": "avg_engagement_rate" },
+                      "AggregationFunction": { "SimpleNumericalAggregation": "AVERAGE" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "BarChartVisual": {
+            "VisualId": "bar-top-channels",
+            "Title": { "Visibility": "VISIBLE", "FormatText": { "PlainText": "Top Channels by Total Views" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "BarChartAggregatedFieldWells": {
+                  "Category": [
+                    { "CategoricalDimensionField": { "FieldId": "bar-channel-cat", "Column": { "DataSetIdentifier": "channels", "ColumnName": "channel_title" } } }
+                  ],
+                  "Values": [
+                    { "NumericalMeasureField": { "FieldId": "bar-channel-val", "Column": { "DataSetIdentifier": "channels", "ColumnName": "total_views" }, "AggregationFunction": { "SimpleNumericalAggregation": "SUM" } } }
+                  ]
+                }
+              },
+              "SortConfiguration": {
+                "CategorySort": [ { "FieldSort": { "FieldId": "bar-channel-val", "Direction": "DESC" } } ],
+                "CategoryItemsLimit": { "ItemsLimit": 10 }
+              },
+              "Orientation": "HORIZONTAL"
+            }
+          }
+        },
+        {
+          "PieChartVisual": {
+            "VisualId": "pie-category-share",
+            "Title": { "Visibility": "VISIBLE", "FormatText": { "PlainText": "Views Share by Category" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "PieChartAggregatedFieldWells": {
+                  "Category": [
+                    { "CategoricalDimensionField": { "FieldId": "pie-cat", "Column": { "DataSetIdentifier": "categories", "ColumnName": "category_name" } } }
+                  ],
+                  "Values": [
+                    { "NumericalMeasureField": { "FieldId": "pie-val", "Column": { "DataSetIdentifier": "categories", "ColumnName": "total_views" }, "AggregationFunction": { "SimpleNumericalAggregation": "SUM" } } }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "BarChartVisual": {
+            "VisualId": "bar-views-by-region",
+            "Title": { "Visibility": "VISIBLE", "FormatText": { "PlainText": "Total Views by Region" } },
+            "ChartConfiguration": {
+              "FieldWells": {
+                "BarChartAggregatedFieldWells": {
+                  "Category": [
+                    { "CategoricalDimensionField": { "FieldId": "bar-region-cat", "Column": { "DataSetIdentifier": "trending", "ColumnName": "region" } } }
+                  ],
+                  "Values": [
+                    { "NumericalMeasureField": { "FieldId": "bar-region-val", "Column": { "DataSetIdentifier": "trending", "ColumnName": "total_views" }, "AggregationFunction": { "SimpleNumericalAggregation": "SUM" } } }
+                  ]
+                }
+              },
+              "SortConfiguration": {
+                "CategorySort": [ { "FieldSort": { "FieldId": "bar-region-val", "Direction": "DESC" } } ]
+              },
+              "Orientation": "VERTICAL"
+            }
+          }
+        }
+      ],
+      "Layouts": [
+        {
+          "Configuration": {
+            "GridLayout": {
+              "Elements": [
+                { "ElementId": "kpi-total-views", "ElementType": "VISUAL", "ColumnSpan": 12, "RowSpan": 6, "ColumnIndex": 0, "RowIndex": 0 },
+                { "ElementId": "kpi-total-videos", "ElementType": "VISUAL", "ColumnSpan": 12, "RowSpan": 6, "ColumnIndex": 12, "RowIndex": 0 },
+                { "ElementId": "kpi-avg-engagement", "ElementType": "VISUAL", "ColumnSpan": 12, "RowSpan": 6, "ColumnIndex": 24, "RowIndex": 0 },
+                { "ElementId": "bar-top-channels", "ElementType": "VISUAL", "ColumnSpan": 18, "RowSpan": 12, "ColumnIndex": 0, "RowIndex": 6 },
+                { "ElementId": "pie-category-share", "ElementType": "VISUAL", "ColumnSpan": 18, "RowSpan": 12, "ColumnIndex": 18, "RowIndex": 6 },
+                { "ElementId": "bar-views-by-region", "ElementType": "VISUAL", "ColumnSpan": 36, "RowSpan": 12, "ColumnIndex": 0, "RowIndex": 18 }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
