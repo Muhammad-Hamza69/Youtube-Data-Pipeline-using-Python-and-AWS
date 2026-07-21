@@ -6,6 +6,15 @@ models:
     config:
       contract:
         enforced: true
+      # dbt requires this explicitly for any incremental model with a
+      # contract enforced -- the SQL file's own config() sets this too, but
+      # dbt merges YAML-schema config and SQL config() from separate code
+      # paths, and the schema-patch step validates against dbt_project.yml's
+      # default ('ignore') before the SQL file's value gets merged in.
+      # Confirmed against a real dbt build failure: setting it only in the
+      # SQL file was not enough. Declaring it here, alongside contract, in
+      # the same config source, is what actually satisfies the check.
+      on_schema_change: append_new_columns
     tests:
       # Ported DQ check: row count >= 10 (was DQ_MIN_ROW_COUNT)
       - dbt_expectations.expect_table_row_count_to_be_between:
