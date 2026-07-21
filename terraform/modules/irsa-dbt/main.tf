@@ -141,6 +141,25 @@ data "aws_iam_policy_document" "dbt" {
   }
 
   statement {
+    # dbt-athena's contract/schema-drift checks call GetTableVersions —
+    # confirmed against a real dbt build (AccessDeniedException on
+    # glue:GetTableVersions, resource: the catalog) after every other model
+    # and 20/21 tests had already passed. Granted at both catalog and the
+    # specific table-scoped ARNs (the CreateDatabase lesson: some Glue
+    # catalog APIs get evaluated against either scope depending on the
+    # call shape, so cover both rather than risk a second round-trip).
+    sid     = "GlueTableVersions"
+    effect  = "Allow"
+    actions = ["glue:GetTableVersions"]
+    resources = [
+      "arn:aws:glue:${var.region}:${var.account_id}:catalog",
+      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.raw_database_name}/*",
+      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.curated_database_name}/*",
+      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.enriched_database_name}/*",
+    ]
+  }
+
+  statement {
     # dbt-athena runs CREATE SCHEMA IF NOT EXISTS for every target schema on
     # each invocation, unconditionally — even though curated_db/enriched_db
     # already exist and this is a no-op every time. Unlike GetDatabases,
