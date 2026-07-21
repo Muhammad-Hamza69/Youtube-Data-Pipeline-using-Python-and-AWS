@@ -141,18 +141,22 @@ data "aws_iam_policy_document" "dbt" {
   }
 
   statement {
-    # dbt-athena's contract/schema-drift checks call GetTableVersions —
-    # confirmed against a real dbt build (AccessDeniedException on
-    # glue:GetTableVersions, resource: the catalog) after every other model
-    # and 20/21 tests had already passed. Granted at both catalog and the
-    # specific table-scoped ARNs (the CreateDatabase lesson: some Glue
-    # catalog APIs get evaluated against either scope depending on the
-    # call shape, so cover both rather than risk a second round-trip).
+    # dbt-athena's contract/schema-drift checks call GetTableVersions.
+    # Confirmed against real dbt builds this needed a THIRD resource-scope
+    # attempt: AWS Glue evaluates several catalog operations (this project
+    # already hit it for CreateDatabase too) against catalog + database +
+    # table ARNs simultaneously, not any single one of them — the first fix
+    # (catalog only) failed against a database-scoped resource, the second
+    # (+ table ARNs) still failed, this time against a database-scoped ARN.
+    # Granting all three levels together avoids a further round-trip.
     sid     = "GlueTableVersions"
     effect  = "Allow"
     actions = ["glue:GetTableVersions"]
     resources = [
       "arn:aws:glue:${var.region}:${var.account_id}:catalog",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.raw_database_name}",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.curated_database_name}",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.enriched_database_name}",
       "arn:aws:glue:${var.region}:${var.account_id}:table/${var.raw_database_name}/*",
       "arn:aws:glue:${var.region}:${var.account_id}:table/${var.curated_database_name}/*",
       "arn:aws:glue:${var.region}:${var.account_id}:table/${var.enriched_database_name}/*",
