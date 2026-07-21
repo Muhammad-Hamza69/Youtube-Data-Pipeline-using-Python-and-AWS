@@ -45,6 +45,14 @@ data "aws_iam_policy_document" "permissions" {
       "glue:GetDatabase",
       "glue:CreateTable",
       "glue:UpdateTable",
+      # awswrangler.athena.to_iceberg() unconditionally calls
+      # delete_table_if_exists() before (re)creating the table definition,
+      # even in mode="append" — it's a schema-recreation safeguard, not a
+      # data-loss risk (the underlying S3 Iceberg data/metadata files aren't
+      # touched by this call, only the Glue Catalog table pointer). Confirmed
+      # against a real execution: without this, every run fails with
+      # AccessDeniedException on glue:DeleteTable before any data is written.
+      "glue:DeleteTable",
       "glue:GetPartitions",
       "glue:CreatePartition",
       "glue:BatchCreatePartition",
