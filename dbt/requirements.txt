@@ -1,0 +1,5 @@
+# Pin exact versions — dbt-athena-community's Iceberg merge strategy has had
+# real version-to-version behavior changes; this pin is a known-working
+# combination to be validated in the build's manual smoke test, not assumed.
+dbt-core==1.8.8
+dbt-athena-community==1.8.2

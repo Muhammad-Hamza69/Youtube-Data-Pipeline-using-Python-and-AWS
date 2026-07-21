@@ -132,6 +132,31 @@ resource "aws_eks_access_policy_association" "gha_deploy_admin" {
   }
 }
 
+# Same class of gotcha as gha_deploy above, for a different principal: the
+# yt-dbt-trigger Lambda calls the Kubernetes API directly (creates a Job,
+# polls it, reads pod logs on failure) to run dbt on this cluster once per
+# pipeline execution. Without an access entry it has valid AWS IAM
+# credentials but zero Kubernetes RBAC standing, and every dbt step fails
+# with a Kubernetes-side 403 that has nothing to do with its IAM policy.
+# Scoped to the data-pipeline namespace only (not cluster-admin like
+# gha_deploy needs for broader kubectl bootstrapping) — this principal only
+# ever needs to create/watch Jobs and read Pod logs in one namespace.
+resource "aws_eks_access_entry" "dbt_trigger" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.dbt_trigger_role_arn
+}
+
+resource "aws_eks_access_policy_association" "dbt_trigger_edit" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_eks_access_entry.dbt_trigger.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+
+  access_scope {
+    type       = "namespace"
+    namespaces = [var.dbt_namespace]
+  }
+}
+
 # ── Cluster OIDC provider (for IRSA) ─────────────────────────────────────────
 
 data "tls_certificate" "eks" {

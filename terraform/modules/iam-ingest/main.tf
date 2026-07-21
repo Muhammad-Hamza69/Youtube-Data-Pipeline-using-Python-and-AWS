@@ -16,10 +16,10 @@ resource "aws_iam_role" "this" {
 
 data "aws_iam_policy_document" "permissions" {
   statement {
-    sid       = "BronzeReadWrite"
+    sid       = "StagingReadWrite"
     effect    = "Allow"
     actions   = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
-    resources = [var.bronze_bucket_arn, "${var.bronze_bucket_arn}/*"]
+    resources = [var.staging_bucket_arn, "${var.staging_bucket_arn}/*"]
   }
 
   statement {

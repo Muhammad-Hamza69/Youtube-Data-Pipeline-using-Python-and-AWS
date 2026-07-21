@@ -40,7 +40,7 @@
     <div id="trigger-result"></div>
   </div>
 
-  <h2>Gold Data Queries</h2>
+  <h2>Enriched Data Queries</h2>
   <div class="card">
     <div class="query-buttons">
       {% for name in query_names %}
@@ -50,7 +50,7 @@
     <div id="query-result"></div>
   </div>
 
-  <h2>Data Quality (last run)</h2>
+  <h2>dbt Build (last run)</h2>
   <div class="card">
     {% if dq_result %}
       <p>
@@ -58,14 +58,14 @@
         <span class="{{ 'pass' if dq_result.quality_passed else 'fail' }}">
           {{ 'PASS' if dq_result.quality_passed else 'FAIL' }}
         </span>
-        — {{ dq_result.checks_passed }}/{{ dq_result.checks_total }} checks passed
+        — Curated/Enriched materialization + dbt tests
       </p>
     {% else %}
-      <p>No data quality result available yet.</p>
+      <p>No dbt build result available yet.</p>
     {% endif %}
   </div>
 
-  <h2>Gold Table Row Counts</h2>
+  <h2>Enriched Table Row Counts</h2>
   <div class="card stats">
     {% for table, count in gold_stats.items() %}
       <div class="stat">

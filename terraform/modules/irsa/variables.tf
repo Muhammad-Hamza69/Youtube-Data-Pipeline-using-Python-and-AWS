@@ -19,15 +19,11 @@ variable "athena_workgroup_name" {
   type = string
 }
 
-variable "gold_bucket_arn" {
+variable "enriched_bucket_arn" {
   type = string
 }
 
-variable "silver_glue_db_name" {
-  type = string
-}
-
-variable "gold_glue_db_name" {
+variable "enriched_glue_db_name" {
   type = string
 }
 

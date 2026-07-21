@@ -7,7 +7,6 @@ on:
       - "terraform/**"
       - "iam_permission/**"
       - "step_functions/**"
-      - "glue_jobs/**"
 
 permissions:
   id-token: write      # required for OIDC -> AWS role assumption
@@ -52,11 +51,14 @@ jobs:
         run: |
           terraform plan \
             -var="ingest_image_tag=plan-preview" \
-            -var="transform_image_tag=plan-preview" \
-            -var="dq_image_tag=plan-preview" \
+            -var="raw_transform_image_tag=plan-preview" \
+            -var="dbt_trigger_image_tag=plan-preview" \
+            -var="dbt_image_tag=plan-preview" \
             -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
             -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
             -var="alert_email=${{ vars.ALERT_EMAIL }}" \
+            -var="quicksight_user_arn=${{ vars.QUICKSIGHT_USER_ARN }}" \
+            -var="lakeformation_admin_arns=${{ vars.LAKEFORMATION_ADMIN_ARNS }}" \
             -no-color -input=false
         continue-on-error: true
 

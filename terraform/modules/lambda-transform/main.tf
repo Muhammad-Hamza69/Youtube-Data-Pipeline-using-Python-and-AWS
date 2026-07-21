@@ -1,5 +1,5 @@
 resource "aws_lambda_function" "this" {
-  function_name = "yt-json-to-parquet"
+  function_name = "yt-raw-transform"
   role          = var.lambda_role_arn
   package_type  = "Image"
   image_uri     = "${var.repository_url}:${var.image_tag}"
@@ -8,11 +8,13 @@ resource "aws_lambda_function" "this" {
 
   environment {
     variables = {
-      S3_BUCKET_BRONZE     = var.bronze_bucket_name
-      S3_BUCKET_SILVER     = var.silver_bucket_name
-      GLUE_DB_SILVER       = var.glue_silver_db
-      GLUE_TABLE_REFERENCE = var.glue_reference_table
-      SNS_ALERT_TOPIC_ARN  = var.sns_topic_arn
+      S3_BUCKET_STAGING   = var.staging_bucket_name
+      S3_BUCKET_RAW       = var.raw_bucket_name
+      GLUE_DB_RAW         = var.glue_raw_db
+      ATHENA_WORKGROUP    = var.athena_workgroup_name
+      RAW_TABLE_STATS     = var.raw_table_statistics
+      RAW_TABLE_REF       = var.raw_table_reference
+      SNS_ALERT_TOPIC_ARN = var.sns_topic_arn
     }
   }
 }

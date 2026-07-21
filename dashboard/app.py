@@ -3,9 +3,9 @@ Pipeline Control Dashboard
 ──────────────────────────
 Interactive front door into the YouTube data pipeline, running on Kubernetes
 (EKS) as a separate concern from the pipeline itself: shows recent Step
-Functions executions, the last data-quality check result, and Gold table
-row counts, and can trigger a new pipeline run and run a small set of
-predefined Gold-table queries. All AWS access is via IRSA.
+Functions executions, the last dbt build outcome, and Enriched table row
+counts, and can trigger a new pipeline run and run a small set of predefined
+Enriched-table queries. All AWS access is via IRSA.
 
 The NodePort is reachable from any IP (the operator's IP changes too often
 for a CIDR allowlist to be practical), so every route except /healthz
@@ -16,12 +16,11 @@ page's own fetch() calls too, so there's no separate in-page API key field.
 Environment Variables:
     STATE_MACHINE_ARN   — the yt-data-pipeline state machine ARN
     ATHENA_WORKGROUP     — the dashboard's own Athena workgroup
-    GOLD_DATABASE        — yt_pipeline_gold_db
+    ENRICHED_DATABASE    — yt_pipeline_enriched_db
     TRIGGER_API_KEY       — shared secret; any username + this as the password via HTTP Basic Auth
     AWS_REGION           — set automatically by EKS/IRSA
 """
 
-import json
 import os
 import time
 import logging
@@ -36,7 +35,7 @@ app = Flask(__name__)
 
 STATE_MACHINE_ARN = os.environ["STATE_MACHINE_ARN"]
 ATHENA_WORKGROUP = os.environ["ATHENA_WORKGROUP"]
-GOLD_DATABASE = os.environ["GOLD_DATABASE"]
+ENRICHED_DATABASE = os.environ["ENRICHED_DATABASE"]
 TRIGGER_API_KEY = os.environ["TRIGGER_API_KEY"].strip()
 
 sfn_client = boto3.client("stepfunctions")
@@ -45,9 +44,9 @@ athena_client = boto3.client("athena")
 _cache = {"data": None, "expires_at": 0}
 CACHE_TTL_SECONDS = 60
 
-# Predefined, fixed Gold queries — bounded scan cost, no free-form SQL
-# accepted from the network. Columns match glue_jobs/silver_to_gold_analytics.py.
-GOLD_QUERIES = {
+# Predefined, fixed Enriched queries — bounded scan cost, no free-form SQL
+# accepted from the network. Columns match dbt/models/enriched/*.sql.
+ENRICHED_QUERIES = {
     "top_channels": (
         "SELECT channel_title, region, total_views, avg_engagement_rate, "
         "rank_in_region FROM channel_analytics WHERE rank_in_region <= 10 "
@@ -69,7 +68,7 @@ def run_athena_query(sql: str, timeout_seconds: int = 30):
     """Run a query against the dashboard's Athena workgroup and return rows."""
     query_id = athena_client.start_query_execution(
         QueryString=sql,
-        QueryExecutionContext={"Database": GOLD_DATABASE},
+        QueryExecutionContext={"Database": ENRICHED_DATABASE},
         WorkGroup=ATHENA_WORKGROUP,
     )["QueryExecutionId"]
 
@@ -116,11 +115,14 @@ def get_recent_executions(limit: int = 10):
     ]
 
 
-def get_last_dq_result(executions):
+def get_last_dbt_result(executions):
     """
-    Walk the most recent execution's history looking for the
-    RunDataQualityChecks task's output — the DQ Lambda's return value is
-    already captured there, so no separate persistence layer is needed.
+    Walk the most recent execution's history looking for the RunDbtBuild
+    task's outcome. Data quality is now enforced as dbt tests inside that
+    same step (dbt build fails its exit code on a test failure, which fails
+    the Kubernetes Job, which fails this Task) — there's no separate
+    payload to inspect the way the old DQ Lambda's quality_passed field was;
+    the task either succeeded or was caught by NotifyDbtBuildFailure.
     """
     if not executions:
         return None
@@ -135,21 +137,25 @@ def get_last_dq_result(executions):
         return None
 
     for event in history["events"]:
-        details = event.get("taskSucceededEventDetails") or event.get(
-            "lambdaFunctionSucceededEventDetails"
-        )
-        if details and "output" in details:
-            try:
-                payload = json.loads(details["output"])
-                body = payload.get("Payload", payload)
-                if "quality_passed" in body:
-                    return body
-            except (json.JSONDecodeError, AttributeError):
-                continue
+        if event["type"] not in ("TaskStateExited",):
+            continue
+        details = event.get("stateExitedEventDetails", {})
+        if details.get("name") != "RunDbtBuild":
+            continue
+        return {"quality_passed": True}
+
+    for event in history["events"]:
+        if (
+            event["type"] == "TaskStateEntered"
+            and event.get("stateEnteredEventDetails", {}).get("name")
+            == "NotifyDbtBuildFailure"
+        ):
+            return {"quality_passed": False}
+
     return None
 
 
-def get_gold_stats():
+def get_enriched_stats():
     stats = {}
     for table in ("trending_analytics", "channel_analytics", "category_analytics"):
         rows = run_athena_query(f'SELECT COUNT(*) AS row_count FROM "{table}"')
@@ -165,8 +171,8 @@ def get_dashboard_data():
     executions = get_recent_executions()
     data = {
         "executions": executions,
-        "dq_result": get_last_dq_result(executions),
-        "gold_stats": get_gold_stats(),
+        "dq_result": get_last_dbt_result(executions),
+        "gold_stats": get_enriched_stats(),
     }
     _cache["data"] = data
     _cache["expires_at"] = now + CACHE_TTL_SECONDS
@@ -191,7 +197,7 @@ def _require_auth():
 @app.route("/")
 def index():
     return render_template(
-        "dashboard.html", **get_dashboard_data(), query_names=list(GOLD_QUERIES)
+        "dashboard.html", **get_dashboard_data(), query_names=list(ENRICHED_QUERIES)
     )
 
 
@@ -228,8 +234,8 @@ def trigger():
 
 @app.route("/query/<name>")
 def query(name):
-    """Run one of the fixed, predefined Gold-table queries."""
-    sql = GOLD_QUERIES.get(name)
+    """Run one of the fixed, predefined Enriched-table queries."""
+    sql = ENRICHED_QUERIES.get(name)
     if sql is None:
         return jsonify({"error": f"unknown query '{name}'"}), 404
     rows = run_athena_query(sql)

@@ -1,5 +1,5 @@
 locals {
-  repo_names = ["yt-ingest", "yt-json-to-parquet", "yt-data-quality", "yt-dashboard"]
+  repo_names = ["yt-ingest", "yt-raw-transform", "yt-dbt-trigger", "yt-dbt", "yt-dashboard"]
 }
 
 resource "aws_ecr_repository" "this" {

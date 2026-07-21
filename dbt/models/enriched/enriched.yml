@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: trending_analytics
+    description: Daily trending stats per region — consumed by the dashboard and QuickSight.
+    columns:
+      - name: region
+        tests: [not_null]
+      - name: trending_date_parsed
+        tests: [not_null]
+
+  - name: channel_analytics
+    description: Per-channel-per-region rollup with a within-region view rank.
+    columns:
+      - name: channel_title
+        tests: [not_null]
+      - name: region
+        tests: [not_null]
+      - name: rank_in_region
+        tests: [not_null]
+
+  - name: category_analytics
+    description: Per-category-per-region-per-day rollup with view-share.
+    columns:
+      - name: region
+        tests: [not_null]
+      - name: category_name
+        tests: [not_null]

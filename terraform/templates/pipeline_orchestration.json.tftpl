@@ -1,5 +1,5 @@
 {
-  "Comment": "YouTube Data Pipeline — Full orchestration via Step Functions. Replaces manual execution of individual jobs.",
+  "Comment": "YouTube Data Pipeline — Staging -> Raw (Iceberg) -> dbt build (Curated+Enriched, on EKS) -> notify.",
   "StartAt": "IngestFromYouTubeAPI",
   "States": {
     "IngestFromYouTubeAPI": {
@@ -35,138 +35,56 @@
       "Type": "Wait",
       "Seconds": 10,
       "Comment": "Brief wait to ensure S3 eventual consistency for newly written objects",
-      "Next": "ProcessInParallel"
+      "Next": "RunRawTransform"
     },
 
-    "ProcessInParallel": {
-      "Type": "Parallel",
-      "Comment": "Run reference data transform and statistics ETL in parallel",
-      "Branches": [
+    "RunRawTransform": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Staging -> Raw (Iceberg), both datasets in one Lambda — replaces the old ProcessInParallel (TransformReferenceData + RunBronzeToSilverGlueJob) two-branch step entirely.",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-raw-transform",
+        "Payload": {
+          "triggered_by": "step_functions",
+          "execution_id.$": "$$.Execution.Id"
+        }
+      },
+      "ResultPath": "$.raw_transform_result",
+      "Retry": [
         {
-          "StartAt": "TransformReferenceData",
-          "States": {
-            "TransformReferenceData": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Parameters": {
-                "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-json-to-parquet",
-                "Payload": {
-                  "triggered_by": "step_functions"
-                }
-              },
-              "ResultPath": "$.reference_result",
-              "Retry": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "IntervalSeconds": 15,
-                  "MaxAttempts": 2,
-                  "BackoffRate": 2
-                }
-              ],
-              "End": true
-            }
-          }
-        },
-        {
-          "StartAt": "RunBronzeToSilverGlueJob",
-          "States": {
-            "RunBronzeToSilverGlueJob": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::glue:startJobRun.sync",
-              "Parameters": {
-                "JobName": "yt-data-pipeline-bronze-to-silver",
-                "Arguments": {
-                  "--bronze_database": "yt_pipeline_bronze_db",
-                  "--bronze_table": "raw_statistics",
-                  "--silver_bucket": "yt-pipeline-silver-${region}-${account_id}",
-                  "--silver_database": "yt_pipeline_silver_db",
-                  "--silver_table": "clean_statistics"
-                }
-              },
-              "ResultPath": "$.glue_bronze_silver_result",
-              "Retry": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "IntervalSeconds": 60,
-                  "MaxAttempts": 2,
-                  "BackoffRate": 2
-                }
-              ],
-              "End": true
-            }
-          }
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
         }
       ],
-      "ResultPath": "$.parallel_results",
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "NotifyTransformFailure",
+          "Next": "NotifyRawTransformFailure",
           "ResultPath": "$.error"
         }
       ],
-      "Next": "RunDataQualityChecks"
+      "Next": "RunDbtBuild"
     },
 
-    "RunDataQualityChecks": {
+    "RunDbtBuild": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Creates a Kubernetes Job on EKS running dbt build + dbt source freshness (Curated+Enriched materialization AND all ported DQ tests in one DAG-ordered run), polls it to completion, and raises on failure or timeout — a non-zero dbt exit code becomes this Lambda raising, caught below exactly like any other Task failure. Replaces the old RunDataQualityChecks -> EvaluateDataQuality(Choice) -> RunSilverToGoldGlueJob three-state sequence with one state; no payload-inspection Choice state needed.",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-data-quality",
+        "FunctionName": "arn:aws:lambda:${region}:${account_id}:function:yt-dbt-trigger",
         "Payload": {
-          "layer": "silver",
-          "database": "yt_pipeline_silver_db",
-          "tables": ["clean_statistics", "clean_reference_data"]
+          "triggered_by": "step_functions",
+          "execution_id.$": "$$.Execution.Id"
         }
       },
-      "ResultPath": "$.dq_result",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "IntervalSeconds": 15,
-          "MaxAttempts": 2,
-          "BackoffRate": 2
-        }
-      ],
-      "Next": "EvaluateDataQuality"
-    },
-
-    "EvaluateDataQuality": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.dq_result.Payload.quality_passed",
-          "BooleanEquals": true,
-          "Next": "RunSilverToGoldGlueJob"
-        }
-      ],
-      "Default": "NotifyDQFailure"
-    },
-
-    "RunSilverToGoldGlueJob": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-      "Parameters": {
-        "JobName": "yt-data-pipeline-silver-to-gold",
-        "Arguments": {
-          "--silver_database": "yt_pipeline_silver_db",
-          "--gold_bucket": "yt-pipeline-gold-${region}-${account_id}",
-          "--gold_database": "yt_pipeline_gold_db"
-        }
-      },
-      "ResultPath": "$.glue_gold_result",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "IntervalSeconds": 60,
-          "MaxAttempts": 2,
-          "BackoffRate": 2
-        }
-      ],
+      "ResultPath": "$.dbt_result",
+      "TimeoutSeconds": 780,
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "NotifyGoldFailure",
+          "Next": "NotifyDbtBuildFailure",
           "ResultPath": "$.error"
         }
       ],
@@ -179,7 +97,7 @@
       "Parameters": {
         "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
         "Subject": "[YT Pipeline] Pipeline completed successfully",
-        "Message.$": "States.Format('Pipeline run {} completed. All layers updated.', $$.Execution.Id)"
+        "Message.$": "States.Format('Pipeline run {} completed. Raw, Curated, and Enriched layers updated.', $$.Execution.Id)"
       },
       "End": true
     },
@@ -195,34 +113,23 @@
       "End": true
     },
 
-    "NotifyTransformFailure": {
+    "NotifyRawTransformFailure": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
         "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
-        "Subject": "[YT Pipeline] FAILURE — Transform step failed",
+        "Subject": "[YT Pipeline] FAILURE — Raw transform step failed",
         "Message.$": "States.JsonToString($.error)"
       },
       "End": true
     },
 
-    "NotifyDQFailure": {
+    "NotifyDbtBuildFailure": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
         "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
-        "Subject": "[YT Pipeline] WARNING — Data quality checks failed",
-        "Message.$": "States.JsonToString($.dq_result)"
-      },
-      "End": true
-    },
-
-    "NotifyGoldFailure": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::sns:publish",
-      "Parameters": {
-        "TopicArn": "arn:aws:sns:${region}:${account_id}:yt-pipeline-alerts",
-        "Subject": "[YT Pipeline] FAILURE — Gold aggregation failed",
+        "Subject": "[YT Pipeline] FAILURE — dbt build (Curated/Enriched) failed",
         "Message.$": "States.JsonToString($.error)"
       },
       "End": true

@@ -74,23 +74,21 @@ data "aws_iam_policy_document" "dashboard_readonly" {
     ]
     resources = [
       "arn:aws:glue:${var.region}:${var.account_id}:catalog",
-      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.silver_glue_db_name}",
-      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.gold_glue_db_name}",
-      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.silver_glue_db_name}/*",
-      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.gold_glue_db_name}/*",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.enriched_glue_db_name}",
+      "arn:aws:glue:${var.region}:${var.account_id}:table/${var.enriched_glue_db_name}/*",
     ]
   }
 
   statement {
-    sid    = "GoldAndAthenaResultsReadOnly"
+    sid    = "EnrichedAndAthenaResultsReadOnly"
     effect = "Allow"
     actions = [
       "s3:GetObject",
       "s3:ListBucket",
     ]
     resources = [
-      var.gold_bucket_arn,
-      "${var.gold_bucket_arn}/*",
+      var.enriched_bucket_arn,
+      "${var.enriched_bucket_arn}/*",
     ]
   }
 
@@ -108,9 +106,21 @@ data "aws_iam_policy_document" "dashboard_readonly" {
       "s3:GetBucketLocation",
     ]
     resources = [
-      var.gold_bucket_arn,
-      "${var.gold_bucket_arn}/athena-dashboard-results/*",
+      var.enriched_bucket_arn,
+      "${var.enriched_bucket_arn}/athena-dashboard-results/*",
     ]
+  }
+
+  statement {
+    # yt_pipeline_enriched_db is Lake Formation-governed with full enforcement
+    # (see terraform/modules/lakeformation) — the Glue/S3 grants above are
+    # necessary but not sufficient on their own; without this, Athena calls
+    # fail with an opaque AccessDeniedException. The actual table-level grant
+    # for this role lives in the lakeformation module, not here.
+    sid       = "LakeFormationDataAccess"
+    effect    = "Allow"
+    actions   = ["lakeformation:GetDataAccess"]
+    resources = ["*"]
   }
 }
 

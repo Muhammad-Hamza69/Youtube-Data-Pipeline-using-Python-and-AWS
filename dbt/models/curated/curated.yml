@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: curated_statistics
+    description: One row per video/region/trending-day, cleaned and deduped.
+    config:
+      contract:
+        enforced: true
+    tests:
+      # Ported DQ check: row count >= 10 (was DQ_MIN_ROW_COUNT)
+      - dbt_expectations.expect_table_row_count_to_be_between:
+          min_value: 10
+    columns:
+      - name: video_id
+        data_type: varchar
+        tests: [not_null]
+      - name: title
+        data_type: varchar
+        tests:
+          # Ported DQ check: null % <= 5 (was DQ_MAX_NULL_PERCENT)
+          - test_null_percentage:
+              threshold: 5
+      - name: channel_title
+        data_type: varchar
+        tests:
+          - test_null_percentage:
+              threshold: 5
+      - name: category_id
+        data_type: varchar
+      - name: publish_time
+        data_type: varchar
+      - name: region
+        data_type: varchar
+        tests: [not_null]
+      - name: source
+        data_type: varchar
+      - name: trending_date_parsed
+        data_type: date
+        tests: [not_null]
+      - name: tags
+        data_type: varchar
+      - name: views
+        data_type: bigint
+        tests:
+          # Ported DQ check: value range (was check_value_ranges, MAX_VIEWS=50B)
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 50000000000
+      - name: likes
+        data_type: bigint
+      - name: dislikes
+        data_type: bigint
+      - name: comment_count
+        data_type: bigint
+      - name: description
+        data_type: varchar
+      - name: like_ratio
+        data_type: double
+      - name: engagement_rate
+        data_type: double
+      - name: _ingestion_timestamp
+        data_type: varchar
+      - name: _source_file
+        data_type: varchar
+
+  - name: curated_reference_data
+    description: Category id -> name lookup, deduped, latest wins.
+    columns:
+      - name: id
+        data_type: varchar
+        tests: [not_null]
+      - name: category_name
+        data_type: varchar
+      - name: region
+        data_type: varchar
+        tests: [not_null]
+      - name: _ingestion_timestamp
+        data_type: varchar
+      - name: _source_file
+        data_type: varchar

@@ -26,8 +26,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install flake8 black
-      - run: flake8 lambdas data_quality dashboard --max-line-length=120
-      - run: black --check lambdas data_quality dashboard
+      - run: flake8 lambdas dashboard --max-line-length=120
+      - run: black --check lambdas dashboard
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.5"
@@ -48,7 +48,6 @@ jobs:
               - 'terraform/**'
               - 'iam_permission/**'
               - 'step_functions/**'
-              - 'glue_jobs/**'
 
   # Applies everything except the 3 Lambdas and the dashboard, each of which
   # now has its own independent deploy-*.yml workflow (see instructor
@@ -78,19 +77,23 @@ jobs:
 
       - run: terraform init
 
-      - name: Read back current per-Lambda image tags
+      - name: Read back current per-component image tags
         id: tags
         run: |
           echo "ingest=$(terraform output -raw ingest_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
-          echo "transform=$(terraform output -raw transform_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
-          echo "dq=$(terraform output -raw dq_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "raw_transform=$(terraform output -raw raw_transform_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "dbt_trigger=$(terraform output -raw dbt_trigger_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "dbt=$(terraform output -raw dbt_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
 
       - name: Terraform apply
         run: |
           terraform apply -auto-approve \
             -var="ingest_image_tag=${{ steps.tags.outputs.ingest }}" \
-            -var="transform_image_tag=${{ steps.tags.outputs.transform }}" \
-            -var="dq_image_tag=${{ steps.tags.outputs.dq }}" \
+            -var="raw_transform_image_tag=${{ steps.tags.outputs.raw_transform }}" \
+            -var="dbt_trigger_image_tag=${{ steps.tags.outputs.dbt_trigger }}" \
+            -var="dbt_image_tag=${{ steps.tags.outputs.dbt }}" \
             -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
             -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
-            -var="alert_email=${{ vars.ALERT_EMAIL }}"
+            -var="alert_email=${{ vars.ALERT_EMAIL }}" \
+            -var="quicksight_user_arn=${{ vars.QUICKSIGHT_USER_ARN }}" \
+            -var="lakeformation_admin_arns=${{ vars.LAKEFORMATION_ADMIN_ARNS }}"

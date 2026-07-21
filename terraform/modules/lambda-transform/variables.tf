@@ -10,21 +10,30 @@ variable "image_tag" {
   type = string
 }
 
-variable "bronze_bucket_name" {
+variable "staging_bucket_name" {
   type = string
 }
 
-variable "silver_bucket_name" {
+variable "raw_bucket_name" {
   type = string
 }
 
-variable "glue_silver_db" {
+variable "glue_raw_db" {
   type = string
 }
 
-variable "glue_reference_table" {
+variable "athena_workgroup_name" {
+  type = string
+}
+
+variable "raw_table_statistics" {
   type    = string
-  default = "clean_reference_data"
+  default = "raw_statistics"
+}
+
+variable "raw_table_reference" {
+  type    = string
+  default = "raw_reference_data"
 }
 
 variable "sns_topic_arn" {

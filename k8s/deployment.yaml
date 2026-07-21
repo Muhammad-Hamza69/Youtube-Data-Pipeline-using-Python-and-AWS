@@ -29,8 +29,8 @@ spec:
               value: "arn:aws:states:us-east-1:300617413029:stateMachine:yt-data-pipeline"
             - name: ATHENA_WORKGROUP
               value: "yt-pipeline-dashboard"
-            - name: GOLD_DATABASE
-              value: "yt_pipeline_gold_db"
+            - name: ENRICHED_DATABASE
+              value: "yt_pipeline_enriched_db"
             - name: AWS_REGION
               value: "us-east-1"
             - name: AWS_DEFAULT_REGION

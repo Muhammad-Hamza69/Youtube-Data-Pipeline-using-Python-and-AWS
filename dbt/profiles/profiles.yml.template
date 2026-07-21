@@ -1,0 +1,15 @@
+yt_pipeline:
+  target: prod
+  outputs:
+    prod:
+      type: athena
+      s3_staging_dir: "${ATHENA_STAGING_DIR}"
+      region_name: "${AWS_REGION}"
+      database: awsdatacatalog
+      schema: "${CURATED_DATABASE}"
+      work_group: "${ATHENA_WORKGROUP}"
+      num_retries: 3
+      # No static credentials: the pod's ServiceAccount is IRSA-annotated
+      # (see k8s/dbt/serviceaccount.yaml), so boto3/pyathena pick up the
+      # assumed role's instance credentials automatically — same mechanism
+      # the dashboard already uses, nothing new to configure here.

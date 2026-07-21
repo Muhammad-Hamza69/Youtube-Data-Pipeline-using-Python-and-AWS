@@ -16,11 +16,6 @@ variable "templates_path" {
 }
 
 variable "lambda_function_arns" {
-  description = "Merged from the 3 per-Lambda modules' function_arn outputs — ensures Terraform orders Lambda creation before the state machine"
-  type        = map(string)
-}
-
-variable "glue_job_names" {
-  description = "From module.glue outputs — ensures Terraform orders Glue job creation before the state machine"
+  description = "Merged from the per-Lambda modules' function_arn outputs — ensures Terraform orders Lambda creation before the state machine"
   type        = map(string)
 }

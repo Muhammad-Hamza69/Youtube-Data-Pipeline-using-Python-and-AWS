@@ -20,13 +20,18 @@ variable "ingest_image_tag" {
   type        = string
 }
 
-variable "transform_image_tag" {
-  description = "Git SHA tagging the yt-json-to-parquet image to deploy. No default on purpose — CI always passes this explicitly."
+variable "raw_transform_image_tag" {
+  description = "Git SHA tagging the yt-raw-transform image to deploy. No default on purpose — CI always passes this explicitly."
   type        = string
 }
 
-variable "dq_image_tag" {
-  description = "Git SHA tagging the yt-data-quality image to deploy. No default on purpose — CI always passes this explicitly."
+variable "dbt_trigger_image_tag" {
+  description = "Git SHA tagging the yt-dbt-trigger image to deploy. No default on purpose — CI always passes this explicitly."
+  type        = string
+}
+
+variable "dbt_image_tag" {
+  description = "Git SHA tagging the yt-dbt image (the actual dbt project container run as a Kubernetes Job) to deploy. No default on purpose — CI always passes this explicitly."
   type        = string
 }
 
@@ -44,4 +49,15 @@ variable "allowed_dashboard_cidr" {
 variable "alert_email" {
   description = "Email address subscribed to pipeline failure/success SNS alerts. No default on purpose — pass via -var or the ALERT_EMAIL CI variable. Requires clicking a confirmation link AWS sends to this address before alerts actually deliver."
   type        = string
+}
+
+variable "quicksight_user_arn" {
+  description = "QuickSight user ARN to grant on the Athena data source/datasets. Defaults to empty and is currently unused — module.quicksight is commented out in main.tf until this account actually has a QuickSight subscription (confirmed absent as of this deploy). Once it exists, remove this default, re-wire module.quicksight, and pass the real ARN via -var or the QUICKSIGHT_USER_ARN CI variable."
+  type        = string
+  default     = ""
+}
+
+variable "lakeformation_admin_arns" {
+  description = "IAM principals to register as Lake Formation admins. Must include gha-deploy-role — see terraform/modules/lakeformation's header comment for why this can't be left to apply-time implicit admin. No default on purpose: this is exactly the kind of value that must never silently default to 'whoever is running this apply'."
+  type        = list(string)
 }

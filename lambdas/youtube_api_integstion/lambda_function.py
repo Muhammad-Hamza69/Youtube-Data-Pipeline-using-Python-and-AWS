@@ -1,16 +1,16 @@
 """
-Lambda: YouTube Data API Ingestion (Bronze Layer)
-──────────────────────────────────────────────────
+Lambda: YouTube Data API Ingestion (Staging Layer)
+───────────────────────────────────────────────────
 Triggered by EventBridge on a schedule (e.g., every 6 hours).
 Pulls trending videos from the YouTube Data API for each configured region
-and writes raw JSON responses to the Bronze S3 bucket.
+and writes raw JSON responses to the Staging S3 bucket.
 
 This replaces the old "download from Kaggle and aws s3 cp" workflow
 with a real, automated, live data ingestion pipeline.
 
 Environment Variables:
     YOUTUBE_API_KEY       — Google API key with YouTube Data API v3 enabled
-    S3_BUCKET_BRONZE      — Target S3 bucket for raw data
+    S3_BUCKET_STAGING     — Target S3 bucket for raw data
     YOUTUBE_REGIONS       — Comma-separated region codes (default: US,GB,CA,...)
     SNS_ALERT_TOPIC_ARN   — SNS topic for failure alerts
 """
@@ -52,7 +52,7 @@ def _load_youtube_api_key() -> str:
 
 # ── Config ───────────────────────────────────────────────────────────────────
 API_KEY = _load_youtube_api_key()
-BUCKET = os.environ["S3_BUCKET_BRONZE"]
+BUCKET = os.environ["S3_BUCKET_STAGING"]
 REGIONS = os.environ.get("YOUTUBE_REGIONS", "US,GB,CA,DE,FR,IN,JP,KR,MX,RU").split(",")
 SNS_TOPIC = os.environ.get("SNS_ALERT_TOPIC_ARN", "")
 API_BASE = "https://www.googleapis.com/youtube/v3"
@@ -128,7 +128,7 @@ def send_alert(subject: str, message: str):
 def lambda_handler(event, context):
     """
     Main handler. Iterates over regions, fetches trending videos
-    and category mappings, writes everything to Bronze layer.
+    and category mappings, writes everything to the Staging layer.
     """
     now = datetime.now(timezone.utc)
     date_partition = now.strftime("%Y-%m-%d")

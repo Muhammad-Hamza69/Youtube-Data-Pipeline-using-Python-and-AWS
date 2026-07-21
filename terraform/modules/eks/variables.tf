@@ -29,3 +29,13 @@ variable "cluster_name" {
 variable "account_id" {
   type = string
 }
+
+variable "dbt_trigger_role_arn" {
+  description = "IAM role ARN of the yt-dbt-trigger Lambda, granted namespace-scoped EKS access (see dbt_trigger access entry below)."
+  type        = string
+}
+
+variable "dbt_namespace" {
+  type    = string
+  default = "data-pipeline"
+}

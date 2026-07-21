@@ -12,7 +12,7 @@ resource "aws_lambda_function" "this" {
   environment {
     variables = {
       YOUTUBE_API_KEY_SECRET_ARN = var.youtube_api_key_secret_arn
-      S3_BUCKET_BRONZE           = var.bronze_bucket_name
+      S3_BUCKET_STAGING          = var.staging_bucket_name
       YOUTUBE_REGIONS            = var.youtube_regions
       SNS_ALERT_TOPIC_ARN        = var.sns_topic_arn
     }

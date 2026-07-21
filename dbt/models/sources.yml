@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: raw
+    database: awsdatacatalog
+    schema: "{{ env_var('RAW_DATABASE') }}"
+    tables:
+      - name: raw_statistics
+        description: >
+          Immutable, append-only ingestion log written by the raw-transform
+          Lambda — one row per video per staging file processed, mixing live
+          YouTube API pulls and the one-time Kaggle historical seed.
+        loaded_at_field: "from_iso8601_timestamp(_ingestion_timestamp)"
+        freshness:
+          warn_after: { count: 24, period: hour }
+          error_after: { count: 48, period: hour }
+      - name: raw_reference_data
+        description: Category id -> name lookup, same append-only contract.

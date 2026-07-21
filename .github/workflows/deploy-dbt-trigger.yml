@@ -1,0 +1,88 @@
+name: Deploy yt-dbt-trigger
+
+# Independent release cycle for the dbt-trigger Lambda — the small Lambda
+# that creates/polls the Kubernetes Job running dbt on EKS. Distinct from
+# deploy-dbt.yml, which releases the dbt project image itself; this one only
+# needs to change when the trigger's own K8s-API/orchestration logic changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lambdas/dbt_trigger/**"
+      - "terraform/modules/lambda-dbt-trigger/**"
+      - "terraform/modules/iam-dbt-trigger/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names yt-dbt-trigger \
+            || aws ecr create-repository --repository-name yt-dbt-trigger
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t "$REGISTRY/yt-dbt-trigger:${{ github.sha }}" lambdas/dbt_trigger
+          docker push "$REGISTRY/yt-dbt-trigger:${{ github.sha }}"
+
+  terraform-apply:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform/envs/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+
+      - run: terraform init
+
+      - name: Read back sibling component image tags
+        id: sibling_tags
+        run: |
+          echo "ingest=$(terraform output -raw ingest_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "raw_transform=$(terraform output -raw raw_transform_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+          echo "dbt=$(terraform output -raw dbt_image_uri | awk -F: '{print $NF}')" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform apply (yt-dbt-trigger only)
+        run: |
+          terraform apply -auto-approve \
+            -target=module.lambda_dbt_trigger -target=module.iam_dbt_trigger \
+            -var="dbt_trigger_image_tag=${{ github.sha }}" \
+            -var="ingest_image_tag=${{ steps.sibling_tags.outputs.ingest }}" \
+            -var="raw_transform_image_tag=${{ steps.sibling_tags.outputs.raw_transform }}" \
+            -var="dbt_image_tag=${{ steps.sibling_tags.outputs.dbt }}" \
+            -var="youtube_api_key=${{ secrets.YOUTUBE_API_KEY }}" \
+            -var="allowed_dashboard_cidr=${{ vars.DASHBOARD_ALLOWED_CIDR }}" \
+            -var="alert_email=${{ vars.ALERT_EMAIL }}" \
+            -var="quicksight_user_arn=${{ vars.QUICKSIGHT_USER_ARN }}" \
+            -var="lakeformation_admin_arns=${{ vars.LAKEFORMATION_ADMIN_ARNS }}"

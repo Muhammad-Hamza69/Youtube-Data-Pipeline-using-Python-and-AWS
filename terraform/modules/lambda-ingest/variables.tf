@@ -11,7 +11,7 @@ variable "image_tag" {
   type        = string
 }
 
-variable "bronze_bucket_name" {
+variable "staging_bucket_name" {
   type = string
 }
 

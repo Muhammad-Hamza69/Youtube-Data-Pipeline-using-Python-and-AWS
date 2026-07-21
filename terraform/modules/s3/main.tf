@@ -1,13 +1,15 @@
-# Bronze / Silver / Gold / Scripts buckets — names match the convention
-# already baked into iam_permission/*.json and the Step Functions ASL
+# Staging / Raw / Curated / Enriched buckets — names match the convention
+# already baked into the Step Functions ASL and dbt profile env vars
 # (yt-pipeline-<layer>-<region>-<account_id>), just pointed at the real account.
+# No "scripts" bucket anymore — that only existed to stage the PySpark ETL
+# scripts, which are gone (replaced by the raw-transform Lambda + dbt models).
 
 locals {
   buckets = {
-    bronze  = "yt-pipeline-bronze-${var.region}-${var.account_id}"
-    silver  = "yt-pipeline-silver-${var.region}-${var.account_id}"
-    gold    = "yt-pipeline-gold-${var.region}-${var.account_id}"
-    scripts = "yt-pipeline-scripts-${var.region}-${var.account_id}"
+    staging  = "yt-pipeline-staging-${var.region}-${var.account_id}"
+    raw      = "yt-pipeline-raw-${var.region}-${var.account_id}"
+    curated  = "yt-pipeline-curated-${var.region}-${var.account_id}"
+    enriched = "yt-pipeline-enriched-${var.region}-${var.account_id}"
   }
 }
 

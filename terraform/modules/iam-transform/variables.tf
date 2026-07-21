@@ -6,15 +6,19 @@ variable "account_id" {
   type = string
 }
 
-variable "bronze_bucket_arn" {
+variable "staging_bucket_arn" {
   type = string
 }
 
-variable "silver_bucket_arn" {
+variable "raw_bucket_arn" {
   type = string
 }
 
-variable "glue_silver_db" {
+variable "glue_raw_db" {
+  type = string
+}
+
+variable "athena_workgroup_name" {
   type = string
 }
 

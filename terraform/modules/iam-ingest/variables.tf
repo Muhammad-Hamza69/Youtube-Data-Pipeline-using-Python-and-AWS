@@ -1,4 +1,4 @@
-variable "bronze_bucket_arn" {
+variable "staging_bucket_arn" {
   type = string
 }
 

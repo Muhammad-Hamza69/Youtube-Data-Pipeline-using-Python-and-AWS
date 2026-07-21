@@ -3,7 +3,7 @@
 # to the Bronze bucket. Run from the repo root: ./scripts/aws_copy.sh
 set -euo pipefail
 
-BUCKET="s3://yt-pipeline-bronze-us-east-1-300617413029"
+BUCKET="s3://yt-pipeline-staging-us-east-1-300617413029"
 DATA_DIR="$(dirname "$0")/../data"
 
 for region in ca de fr gb in jp kr mx ru us; do

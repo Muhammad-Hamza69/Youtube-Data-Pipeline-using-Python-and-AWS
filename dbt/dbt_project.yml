@@ -1,0 +1,22 @@
+name: 'yt_pipeline'
+version: '1.0.0'
+config-version: 2
+
+profile: 'yt_pipeline'
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  yt_pipeline:
+    curated:
+      +materialized: incremental
+      +schema: "{{ env_var('CURATED_DATABASE') }}"
+    enriched:
+      +materialized: table
+      +schema: "{{ env_var('ENRICHED_DATABASE') }}"
