@@ -143,16 +143,22 @@ data "aws_iam_policy_document" "dbt" {
   statement {
     # dbt-athena runs CREATE SCHEMA IF NOT EXISTS for every target schema on
     # each invocation, unconditionally — even though curated_db/enriched_db
-    # already exist and this is a no-op every time. CreateDatabase's target
-    # doesn't exist as a resource yet from IAM's perspective, so like
-    # GetDatabases this can only be scoped to the catalog, not a specific
-    # database ARN. Confirmed against a real dbt build failure
-    # (AccessDeniedException on glue:CreateDatabase) after the previous
-    # GetDatabases/results-write fixes got it further than ever before.
-    sid       = "GlueCreateDatabase"
-    effect    = "Allow"
-    actions   = ["glue:CreateDatabase"]
-    resources = ["arn:aws:glue:${var.region}:${var.account_id}:catalog"]
+    # already exist and this is a no-op every time. Unlike GetDatabases,
+    # AWS evaluates glue:CreateDatabase against the ARN of the database
+    # NAME being created (not just the catalog) — confirmed by the actual
+    # AccessDeniedException message naming
+    # "resource: .../database/yt_pipeline_enriched_db" specifically, after
+    # a first attempt scoped to only the catalog ARN still failed. Needs
+    # both: the catalog (the API call itself operates at that level) and
+    # each specific target database name.
+    sid     = "GlueCreateDatabase"
+    effect  = "Allow"
+    actions = ["glue:CreateDatabase"]
+    resources = [
+      "arn:aws:glue:${var.region}:${var.account_id}:catalog",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.curated_database_name}",
+      "arn:aws:glue:${var.region}:${var.account_id}:database/${var.enriched_database_name}",
+    ]
   }
 
   statement {
