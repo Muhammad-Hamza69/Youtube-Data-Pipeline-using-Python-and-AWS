@@ -56,6 +56,20 @@ data "aws_iam_policy_document" "dbt" {
   }
 
   statement {
+    # Athena's ATHENA_STAGING_DIR (this pod's profiles.yml s3_staging_dir)
+    # points at the raw bucket's athena-results/ prefix — every query dbt
+    # runs writes its own result/metadata file there regardless of whether
+    # the query's actual DATA target is curated/enriched, so this needs
+    # write access even though dbt otherwise only reads from raw.
+    # Confirmed against a real dbt build: it got all the way through
+    # `dbt build` (5 models, 16 tests) and only failed writing this file.
+    sid       = "RawAthenaResultsWrite"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${var.raw_bucket_arn}/athena-results/*"]
+  }
+
+  statement {
     sid    = "CuratedEnrichedReadWrite"
     effect = "Allow"
     actions = [
