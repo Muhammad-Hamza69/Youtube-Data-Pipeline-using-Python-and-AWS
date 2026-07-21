@@ -188,6 +188,14 @@ data "aws_iam_policy_document" "gha_deploy_permissions" {
       "cloudwatch:*",
       "dynamodb:*",
       "sts:GetCallerIdentity",
+      # Added for the medallion rebuild (Raw/Curated/Enriched on Iceberg):
+      # module.cloudtrail and module.lakeformation are new services this
+      # project didn't touch before. quicksight is included now too so it's
+      # ready once module.quicksight gets wired back in (no subscription
+      # exists on this account yet, so it's currently unused but harmless).
+      "cloudtrail:*",
+      "lakeformation:*",
+      "quicksight:*",
     ]
     resources = ["*"]
   }
