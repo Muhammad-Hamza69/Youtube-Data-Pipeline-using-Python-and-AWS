@@ -17,6 +17,15 @@ models:
     curated:
       +materialized: incremental
       +schema: "{{ env_var('CURATED_DATABASE') }}"
+      # Without this, dbt-athena defaults table data location to a path
+      # derived from profiles.yml's s3_staging_dir (the raw bucket's
+      # athena-results/ scratch space, used for Athena's own query
+      # metadata) -- confirmed against a real dbt build failure
+      # (ICEBERG_FILESYSTEM_ERROR writing into the raw bucket instead of
+      # curated). Table data and Athena's query staging area must be
+      # distinct locations.
+      +s3_data_dir: "{{ env_var('CURATED_S3_DIR') }}"
     enriched:
       +materialized: table
       +schema: "{{ env_var('ENRICHED_DATABASE') }}"
+      +s3_data_dir: "{{ env_var('ENRICHED_S3_DIR') }}"
