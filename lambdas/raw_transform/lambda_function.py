@@ -208,10 +208,26 @@ def _normalize_reference_data(key: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=REF_COLUMNS)
 
 
+# Explicit dtype schema for awswrangler's pandas->Athena type inference.
+# Needed because "dislikes" is always null for live API rows (YouTube
+# retired the public dislike count in Dec 2021) — a fully-null pandas
+# column infers as dtype "object", which awswrangler can't map to an
+# Athena type at all (UndetectedType), confirmed against a real execution.
+# Declaring these explicitly also protects the other numeric columns from
+# the same failure mode if a future batch ever happens to be all-null.
+ICEBERG_DTYPES = {
+    "views": "bigint",
+    "likes": "bigint",
+    "dislikes": "bigint",
+    "comment_count": "bigint",
+}
+
+
 def _write_iceberg(df: pd.DataFrame, table: str):
     if df.empty:
         logger.info("No rows to write for %s, skipping", table)
         return
+    dtype = {col: t for col, t in ICEBERG_DTYPES.items() if col in df.columns}
     wr.athena.to_iceberg(
         df=df,
         database=GLUE_DB,
@@ -222,6 +238,7 @@ def _write_iceberg(df: pd.DataFrame, table: str):
         partition_cols=["region"],
         mode="append",
         keep_files=False,
+        dtype=dtype,
     )
     logger.info("Wrote %d rows to %s.%s", len(df), GLUE_DB, table)
 
