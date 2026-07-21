@@ -39,11 +39,18 @@ resource "aws_iam_role" "dbt" {
 
 data "aws_iam_policy_document" "dbt" {
   statement {
+    # s3:GetBucketLocation is a distinct, separate requirement from
+    # ListBucket/GetObject — Athena's StartQueryExecution calls it to
+    # verify the query's output/staging bucket before running anything, and
+    # fails with "Unable to verify/create output bucket" without it
+    # (confirmed on the raw-transform Lambda's identical gap against a real
+    # execution — every dbt query goes through Athena the same way).
     sid    = "RawRead"
     effect = "Allow"
     actions = [
       "s3:GetObject",
       "s3:ListBucket",
+      "s3:GetBucketLocation",
     ]
     resources = [var.raw_bucket_arn, "${var.raw_bucket_arn}/*"]
   }
@@ -56,6 +63,7 @@ data "aws_iam_policy_document" "dbt" {
       "s3:PutObject",
       "s3:DeleteObject",
       "s3:ListBucket",
+      "s3:GetBucketLocation",
     ]
     resources = [
       var.curated_bucket_arn, "${var.curated_bucket_arn}/*",

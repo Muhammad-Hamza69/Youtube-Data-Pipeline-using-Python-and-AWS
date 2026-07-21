@@ -31,9 +31,15 @@ data "aws_iam_policy_document" "permissions" {
   }
 
   statement {
+    # s3:GetBucketLocation is a distinct, separate requirement from
+    # ListBucket/GetObject/PutObject — Athena's StartQueryExecution calls it
+    # to verify the CTAS temp_path/output bucket before running anything,
+    # and fails with "Unable to verify/create output bucket" without it
+    # (confirmed against a real execution — easy to miss since every other
+    # S3 action worked fine).
     sid       = "RawReadWrite"
     effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket", "s3:GetBucketLocation"]
     resources = [var.raw_bucket_arn, "${var.raw_bucket_arn}/*"]
   }
 
