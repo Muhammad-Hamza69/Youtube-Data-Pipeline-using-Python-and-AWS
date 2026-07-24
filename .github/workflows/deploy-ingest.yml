@@ -10,6 +10,7 @@ on:
       - "lambdas/youtube_api_integstion/**"
       - "terraform/modules/lambda-ingest/**"
       - "terraform/modules/iam-ingest/**"
+  workflow_dispatch: {}
 
 permissions:
   id-token: write

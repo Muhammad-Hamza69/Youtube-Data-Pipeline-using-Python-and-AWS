@@ -1,0 +1,421 @@
+================================================================================
+YOUTUBE DATA PIPELINE — BUILD-FROM-SCRATCH PLAYBOOK
+================================================================================
+Purpose: when told "build this project from scratch," follow this exact
+sequence. Every step below already has the correct, debugged configuration
+baked in — this document exists specifically so the ~20 real bugs hit while
+building this the first time are NOT rediscovered one at a time. Where a step
+notes "why," that's the lesson learned; don't skip the reasoning even if the
+instruction looks like it could be simplified.
+
+================================================================================
+1. TARGET ARCHITECTURE (what you're building)
+================================================================================
+EventBridge (hourly, rate(1 hour))
+  -> Step Functions state machine "yt-data-pipeline" (3 states, each a plain
+     lambda:invoke Task — no Choice states):
+     IngestFromYouTubeAPI -> WaitForS3Consistency(10s) -> RunRawTransform
+       -> RunDbtBuild -> NotifySuccess
+     (NotifyIngestionFailure / NotifyRawTransformFailure / NotifyDbtBuildFailure
+      Catch branches on each Task, all publish to SNS)
+
+Layers:
+  Staging (S3, plain JSON/CSV, no Glue catalog)
+    -> yt-ingest Lambda writes here (YouTube Data API v3, 10 regions)
+  Raw (S3 + Glue DB yt_pipeline_raw_db, Iceberg)
+    -> yt-raw-transform Lambda writes here via awswrangler.athena.to_iceberg(),
+       mode="append" (immutable ingestion log). Two tables: raw_statistics,
+       raw_reference_data. Handles BOTH live-API JSON and Kaggle CSV shapes,
+       normalizing to one stable schema (shape-normalization lives here, NOT
+       in dbt — dbt sources() assume Raw is already uniform).
+  Curated (S3 + Glue DB yt_pipeline_curated_db, Iceberg)
+    -> dbt models: curated_statistics (incremental/merge, contract enforced),
+       curated_reference_data (full-refresh table)
+  Enriched (S3 + Glue DB yt_pipeline_enriched_db, Iceberg, data mart)
+    -> dbt models: trending_analytics, channel_analytics, category_analytics
+
+dbt runs as a Kubernetes Job on the SAME EKS cluster that hosts the
+dashboard (not a new ECS/Fargate stack) — a yt-dbt-trigger Lambda creates the
+Job via the raw Kubernetes API (custom EKS bearer-token auth, no kubectl),
+polls it to completion, fetches pod logs on failure, and raises an exception
+so Step Functions' standard Catch handles it like any other Task failure.
+ArgoCD manages the static pieces (namespace "data-pipeline", ServiceAccount
+"dbt" with IRSA annotation); Step Functions creates the ephemeral Job itself.
+
+Governance: Lake Formation governs raw/curated/enriched (not staging — never
+Glue-cataloged). CloudTrail logs management events, multi-region.
+
+Consumers of Enriched: the existing Flask "control panel" dashboard on EKS
+(ops-focused: trigger runs, execution history, dbt build status) AND
+QuickSight (KPI/chart dashboard for insights) — two different tools, two
+different audiences, both read Enriched via Athena.
+
+================================================================================
+2. PREREQUISITES — GET THESE RIGHT BEFORE WRITING ANY CODE
+================================================================================
+2a. terraform/bootstrap/ (separate state, applied manually, rarely touched)
+    gha-deploy-role's scoped IAM policy MUST include from day one:
+      s3:*, iam:*, glue:*, lambda:*, ecr:*, states:*, events:*, sns:*,
+      athena:*, secretsmanager:*, eks:*, ec2:*, elasticloadbalancing:*,
+      autoscaling:*, logs:*, cloudwatch:*, dynamodb:*, sts:GetCallerIdentity,
+      cloudtrail:*, lakeformation:*, quicksight:*
+    WHY: doing this later means the first CI apply touching those services
+    fails with AccessDeniedException on refresh (DescribeTrails,
+    GetDataLakeSettings) — discovered painfully after everything else worked.
+
+2b. GitHub repo Settings -> Secrets and variables -> Actions:
+    Variables: AWS_REGION, AWS_PLAN_ROLE_ARN, AWS_DEPLOY_ROLE_ARN,
+      DASHBOARD_ALLOWED_CIDR, ALERT_EMAIL,
+      LAKEFORMATION_ADMIN_ARNS = ["arn:aws:iam::<acct>:role/gha-deploy-role",
+                                   "arn:aws:iam::<acct>:user/<your-iam-user>"]
+      QUICKSIGHT_USER_ARN (only once QuickSight subscription exists — see 2c)
+    Secrets: YOUTUBE_API_KEY, DASHBOARD_TRIGGER_API_KEY
+    Environments: "production" with a required reviewer (deploy.yml's gate)
+
+    CRITICAL SHELL-QUOTING RULE: any -var passing a JSON array/object literal
+    (like LAKEFORMATION_ADMIN_ARNS) MUST be single-quoted in the workflow YAML:
+      -var='lakeformation_admin_arns=${{ vars.LAKEFORMATION_ADMIN_ARNS }}'
+    NOT double-quoted. Double-quoting breaks the instant the JSON value's own
+    embedded double-quotes terminate the shell string early, and Terraform
+    receives a mangled fragment ("Missing item separator" / "Expected a comma").
+
+2c. QuickSight: if you want it wired in, the account subscription must be
+    manually created in-console FIRST (Enterprise edition, notification
+    email) — `aws quicksight describe-account-subscription --aws-account-id
+    <acct>` must return ACCOUNT_CREATED before the quicksight module can
+    apply. If not ready yet, skip module.quicksight entirely (comment it out
+    of root main.tf, give quicksight_user_arn a default of "" ) rather than
+    blocking the rest of the deploy — wire it back in later, it's independent
+    of everything else.
+
+2d. Local dev machine: do NOT build Lambda container images with local
+    Docker if it has the containerd image store feature enabled — recent
+    Docker Desktop defaults to OCI image-index manifests, which Lambda's
+    CreateFunction rejects outright. Build every Lambda/dbt image via GitHub
+    Actions runners (standard docker-ce, produces Docker v2 manifests, which
+    Lambda accepts) — this is also just the correct CI/CD design anyway, not
+    a workaround.
+
+================================================================================
+3. TERRAFORM MODULE STRUCTURE (build in this order — later modules depend on
+   earlier ones existing correctly)
+================================================================================
+terraform/envs/prod/  (root: main.tf, variables.tf, outputs.tf)
+terraform/modules/
+  secrets/            (Secrets Manager: youtube_api_key)
+  s3/                 (buckets: staging, raw, curated, enriched — NOT
+                        "bronze/silver/gold", no "scripts" bucket needed)
+  iam/                (shared: sfn role [lambda:Invoke + sns:Publish only,
+                        NO glue:* — no Glue jobs exist in this design],
+                        eventbridge role)
+  glue/               (ONLY 3 aws_glue_catalog_database resources: raw,
+                        curated, enriched. NO crawler, NO Glue jobs — Iceberg
+                        tables self-register their schema on CREATE TABLE/CTAS,
+                        there is no raw-file-scanning discovery step and no
+                        PySpark ETL in this architecture at all)
+  ecr/                (repo_names = yt-ingest, yt-raw-transform, yt-dbt-trigger,
+                        yt-dbt, yt-dashboard)
+  sns/
+  athena/             (TWO workgroups: "yt-pipeline-etl" — raw-transform +
+                        dbt, output to raw bucket's athena-results/ — and
+                        "yt-pipeline-dashboard" — the ops dashboard, output to
+                        enriched bucket. BOTH must pin
+                        engine_version.selected_engine_version = "Athena
+                        engine version 3" explicitly — Iceberg requires it,
+                        nothing defaults there.)
+  iam-ingest/         (staging read/write, secrets read, sns publish)
+  iam-transform/      (raw-transform Lambda's role — see §4 for the full,
+                        correct permission list; getting this right the first
+                        time avoids 3 separate rounds of AccessDenied)
+  iam-dbt-trigger/    (eks:DescribeCluster scoped to the cluster ARN, sns
+                        publish, AWSLambdaBasicExecutionRole)
+  lambda-ingest/, lambda-transform/, lambda-dbt-trigger/
+  eks/                (dashboard-hosting cluster + node group, public
+                        subnets, no NAT gateway — see §4 for BOTH required
+                        access entries)
+  irsa/               (dashboard's IRSA role — enriched_db read only)
+  irsa-dbt/           (dbt pod's IRSA role — see §4 for the full, correct
+                        permission list)
+  lakeformation/      (see §4 — sequencing and permission-scoping matter a lot)
+  cloudtrail/         (one multi-region trail, management events only,
+                        dedicated log bucket with lifecycle expiration)
+  quicksight/          (data source + 3 SPICE datasets + refresh schedules +
+                        IAM for the auto-created service role — see §4)
+  stepfunctions/, eventbridge/, argocd/
+
+dbt/  (dbt project, see §5 for exact required config)
+lambdas/{youtube_api_integstion,raw_transform,dbt_trigger}/
+k8s/{namespace.yaml,serviceaccount.yaml,deployment.yaml,service.yaml,
+     dbt/namespace.yaml,dbt/serviceaccount.yaml,argocd/application.yaml}
+.github/workflows/{deploy.yml,deploy-ingest.yml,deploy-raw-transform.yml,
+     deploy-dbt-trigger.yml,deploy-dbt.yml,deploy-dashboard.yml,
+     terraform-plan.yml}
+
+================================================================================
+4. PERMISSIONS THAT MUST BE RIGHT THE FIRST TIME (this is the section that
+   saves the most time — every line here was a separate real failure before)
+================================================================================
+
+4a. EKS access entries (module "eks") — need access entries for TWO
+    different principals, granted at creation, not patched in later:
+      1. gha-deploy-role — cluster-admin (broad; CI needs to bootstrap
+         namespaces/secrets imperatively for the dashboard)
+      2. the yt-dbt-trigger Lambda's IAM role — namespace-scoped to
+         "data-pipeline" only, policy AmazonEKSEditPolicy (it only ever
+         needs to create/watch Jobs and read Pod logs in one namespace)
+    WHY principal #1 matters: bootstrap_cluster_creator_admin_permissions
+    only authorizes whoever's credentials ran CreateCluster — if that's a
+    human running Terraform locally instead of CI, gha-deploy-role gets
+    ZERO Kubernetes RBAC and every future CI kubectl step fails.
+
+4b. iam-transform (raw-transform Lambda) — full correct policy:
+    S3: GetObject/ListBucket on staging; GetObject/PutObject/DeleteObject/
+        ListBucket/GetBucketLocation on raw (GetBucketLocation is NOT covered
+        by ListBucket — Athena's StartQueryExecution calls it separately to
+        verify the CTAS temp/output bucket, fails with "Unable to
+        verify/create output bucket" without it)
+    Glue: GetTable, GetDatabase, CreateTable, UpdateTable, DeleteTable (yes,
+        DeleteTable — awswrangler.athena.to_iceberg() unconditionally calls
+        delete_table_if_exists() before recreating the table definition, EVEN
+        in mode="append"; it only touches the Glue Catalog pointer, not the
+        underlying data), GetPartitions, CreatePartition,
+        BatchCreatePartition, DeletePartition, BatchDeletePartition — scoped
+        to catalog + database/raw_db + table/raw_db/*
+    Athena: StartQueryExecution, GetQueryExecution, GetQueryResults,
+        GetWorkGroup — scoped to the "yt-pipeline-etl" workgroup
+    Lake Formation: lakeformation:GetDataAccess on "*" (required in addition
+        to the Glue grants once raw_db is LF-registered, or Athena calls fail
+        with an opaque AccessDeniedException that looks IAM-related but isn't)
+
+4c. irsa-dbt (dbt pod's role) — full correct policy. Athena/Glue's IAM
+    evaluation is NOT uniform across actions — some check only the catalog
+    ARN, some only database ARN, some only table ARN, and a few (confirmed:
+    CreateDatabase, GetTableVersions) check MULTIPLE scopes simultaneously.
+    Grant all of the below exactly as scoped, don't try to minimize it based
+    on what "should" be enough:
+      S3: GetObject/ListBucket/GetBucketLocation on raw;
+          PutObject on raw's "athena-results/*" prefix specifically (Athena's
+          s3_staging_dir points at raw's athena-results/ — every query dbt
+          runs writes its own result/metadata file there regardless of the
+          query's actual data target, so dbt needs write access to raw's
+          scratch prefix even though it otherwise only reads from raw);
+          GetObject/PutObject/DeleteObject/ListBucket/GetBucketLocation on
+          curated AND enriched
+      Glue on raw (read-only): GetTable, GetTables, GetDatabase, GetPartitions
+          — scoped to catalog + database/raw_db + table/raw_db/*
+      Glue on curated+enriched (read-write): GetTable, GetTables, GetDatabase,
+          CreateTable, UpdateTable, DeleteTable, GetPartitions,
+          CreatePartition, BatchCreatePartition, DeletePartition,
+          BatchDeletePartition — scoped to catalog + database/{curated,
+          enriched} + table/{curated,enriched}/*
+      Glue catalog-wide (three SEPARATE statements, each needs its own
+          resource list, do not assume one scope works for all three):
+        - GetDatabases: resources = [catalog] only
+        - CreateDatabase: resources = [catalog, database/curated_db,
+              database/enriched_db] — catalog-only WILL fail with
+              AccessDeniedException naming the specific database ARN
+        - GetTableVersions: resources = [catalog, database/raw_db,
+              database/curated_db, database/enriched_db, table/raw_db/*,
+              table/curated_db/*, table/enriched_db/*] — needs catalog AND
+              database AND table scopes all granted together; two narrower
+              attempts (catalog-only, then +table-only) both failed in
+              sequence against this exact action
+      Athena: StartQueryExecution, GetQueryExecution, GetQueryResults,
+          StopQueryExecution, GetWorkGroup — scoped to "yt-pipeline-etl"
+      Lake Formation: GetDataAccess on "*"
+
+4d. Lake Formation module — sequencing and design that must be right:
+      1. aws_lakeformation_data_lake_settings.admins MUST explicitly list
+         gha-deploy-role (and the human operator's principal) from the very
+         first apply — same implicit-admin trap as 4a's EKS lesson, applied
+         to a different service. Every other LF resource depends_on this one.
+      2. Also in that same settings resource, set BOTH
+         create_database_default_permissions and
+         create_table_default_permissions to {permissions=[],
+         principal="IAM_ALLOWED_PRINCIPALS"} — this is the actual account-
+         wide control point that turns off automatic IAMAllowedPrincipals
+         grants on new databases/tables. There is no per-database toggle for
+         this default; it's global.
+      3. Register raw/curated/enriched as LF resources using a CUSTOM IAM
+         role (create one: trust policy allows lakeformation.amazonaws.com
+         to assume it, permissions = S3 read/write on all three buckets) via
+         the `role_arn` argument — do NOT use `use_service_linked_role =
+         true`. The service-linked role
+         (AWSServiceRoleForLakeFormationDataAccess) failed real
+         s3:GetObject calls on Iceberg metadata files during actual queries
+         in testing; a custom role fully within your own IAM control is
+         more reliable.
+      4. Grants: split every principal's access into a DATABASE-level grant
+         (CREATE_TABLE/ALTER/DROP/DESCRIBE only) and a SEPARATE TABLE-level
+         grant (table{wildcard=true}, permissions SELECT/INSERT/DESCRIBE).
+         Do NOT put SELECT/INSERT in the same grant as CREATE_TABLE/ALTER —
+         a database{} target only accepts the DDL-shaped permissions, mixing
+         in table-shaped ones fails with a generic "Permissions modification
+         is invalid" that gives no hint which permission is the problem.
+      5. Raw stays on the IAM_ALLOWED_PRINCIPALS fallback (explicit grant,
+         "ALL" permissions, database-level, no equivalent table-level split
+         needed since "ALL" isn't subject to the same DDL/DML split).
+         Curated/enriched get NO fallback grant — governed exclusively by
+         the explicit principal grants, which is what "full enforcement"
+         actually means (absence of the fallback, not a revocation of it).
+      6. Grant each real consumer by name: raw-transform Lambda role (raw:
+         create/write), dbt IRSA role (raw: read; curated+enriched:
+         read/write), dashboard IRSA role (enriched: read), QuickSight's
+         service role (enriched: read) — same database+table split pattern
+         for every one of them, including the DATA_LOCATION_ACCESS grant on
+         each principal's relevant bucket(s).
+
+4e. QuickSight — two schema gotchas that fail dataset creation outright:
+      - physicalTableMap keys must match [0-9a-zA-Z-]* — NO underscores.
+        Table names like "channel_analytics" can't be used as the map key
+        directly; hyphenate it (replace(each.key, "_", "-")) for the ID, the
+        actual `name` field inside relational_table still uses the real
+        table name.
+      - SPICE relational-table datasets have no array/list column type. Any
+        Iceberg column typed array<string> (e.g. channel_analytics.categories)
+        must be OMITTED from the dataset's input_columns entirely — it's a
+        column-projection list, not a strict schema match, so omitting one
+        column is fine and doesn't break ingestion of the rest.
+      - The account's auto-created aws-quicksight-service-role-v0 has ZERO
+        inline policies by default (only generic managed policies) — you
+        must attach an inline policy granting it S3 (enriched bucket +
+        results prefix write), Glue (enriched_db read + catalog GetDatabases),
+        and lakeformation:GetDataAccess yourself; it does not come with
+        access to YOUR specific buckets/databases automatically.
+
+================================================================================
+5. DBT PROJECT — EXACT REQUIRED CONFIG (get these right in dbt_project.yml
+   and the model .yml files from the start, not after a failed build)
+================================================================================
+- profiles.yml is rendered from a template via envsubst at container start
+  (never bake account-specific values into the image) — s3_staging_dir
+  points at RAW bucket's athena-results/ prefix (Athena's own query
+  scratch space), completely separate from...
+- ...+s3_data_dir, which MUST be set explicitly per model folder in
+  dbt_project.yml:
+    models: yt_pipeline: curated: { +s3_data_dir: "{{ env_var('CURATED_S3_DIR') }}" }
+                          enriched: { +s3_data_dir: "{{ env_var('ENRICHED_S3_DIR') }}" }
+  Without this, dbt-athena silently defaults table DATA location to a path
+  derived from s3_staging_dir instead — models will build "successfully" on
+  the SQL side and then fail at the Iceberg write step with
+  ICEBERG_FILESYSTEM_ERROR (wrong bucket entirely).
+- Any incremental model with `contract: enforced: true` in its schema .yml
+  MUST also set `on_schema_change: append_new_columns` (or "fail") IN THAT
+  SAME YAML config block, not only in the SQL file's {{ config() }}. dbt's
+  schema-patch validation checks against dbt_project.yml's default
+  ("ignore") before the SQL file's own config value gets merged in — setting
+  it only in SQL fails with "Models materialized as incremental with
+  contracts enabled must set on_schema_change to 'append_new_columns' or
+  'fail'" even though the SQL file looks correct.
+- Custom generic test needed for percentage-threshold null checks (dbt-core's
+  built-in not_null is 0%-tolerance only, no percentage variant exists in
+  dbt-core or dbt_expectations) — write tests/generic/test_null_percentage.sql
+  taking column_name/threshold args.
+- Shape-normalization (API JSON vs Kaggle CSV) happens in the raw-transform
+  LAMBDA, never in dbt models — Raw must already be one stable schema by the
+  time dbt sources() it.
+- Pin dbt-core and dbt-athena-community to exact versions in requirements.txt
+  — the Iceberg incremental merge strategy has had real behavior changes
+  across versions.
+
+================================================================================
+6. DEPLOYMENT SEQUENCE (the actual commands, in order, first time through)
+================================================================================
+1. Apply terraform/bootstrap/ locally (one-time, rarely touched):
+     cd terraform/bootstrap && terraform init && terraform apply
+   Confirm the IAM policy from §2a is what actually gets applied.
+
+2. Push all application/infra code to `main` in one commit. This triggers
+   every CI workflow whose path filter matches. Expect (correctly) that:
+     - Every build-and-push job succeeds (creates ECR repos via CLI +
+       pushes real images tagged with the commit SHA) — these don't touch
+       Terraform state at all.
+     - Every terraform-apply job FAILS with "No outputs found" — this is
+       structurally unavoidable on a truly empty state, because every
+       deploy-*.yml workflow reads its SIBLING components' current image
+       tags via `terraform output`, and nothing has ever been applied yet.
+       This is not a bug to fix; it's why step 3 exists.
+
+3. Confirm all 4 needed images exist in ECR under the pushed commit's SHA
+   (aws ecr describe-images --repository-name <repo> --image-ids
+   imageTag=<sha>) — do NOT build them locally (see §2d).
+
+4. Run ONE seed `terraform apply` (locally, since no CI workflow does this)
+   passing ALL image tags EXPLICITLY as -var (not read from output, since
+   nothing exists yet), plus every other required var
+   (youtube_api_key, allowed_dashboard_cidr, alert_email,
+   lakeformation_admin_arns, quicksight_user_arn if applicable). Expect,
+   even with every permission above already correct in code:
+     - "RepositoryAlreadyExistsException" on all ECR repos — CI's
+       build-and-push jobs already created them via CLI before Terraform's
+       module.ecr got to them. Fix with Terraform `import` BLOCKS (a
+       temporary _import.tf file with one `import { to = ...; id = ... }`
+       block per repo, applied in the SAME operation as everything else) —
+       NOT the `terraform import` CLI command one resource at a time, which
+       fails with "does not identify an element in this collection" because
+       other modules reference the full expected for_each map before all
+       members exist in state. Delete the _import.tf file after the import
+       succeeds.
+   This single apply, done correctly with §4's permissions already baked
+   in, should create EKS, IAM, Lambdas, Lake Formation, Step Functions,
+   EventBridge, CloudTrail, and everything else in one pass with zero
+   errors (confirmed achievable once the lessons in §4 are actually applied
+   up front instead of discovered by trial and error).
+
+5. Bootstrap ArgoCD (manual, one-time, matches k8s/argocd/application.yaml's
+   own header comment):
+     aws eks update-kubeconfig --name yt-pipeline-dashboard --region us-east-1
+     kubectl apply -f k8s/argocd/application.yaml
+   The Application's `directory` source config MUST include `recurse: true`
+   alongside `exclude: "argocd/*"` — without it, ArgoCD only scans files
+   DIRECTLY in k8s/, never descending into k8s/dbt/ or other subdirectories,
+   even though they're correctly not excluded. This is easy to miss because
+   nothing errors — the subdirectory's resources just silently never sync.
+
+6. Create the dashboard-api-key k8s secret (openssl rand -hex 32) if
+   deploy-dashboard.yml's own bootstrap step didn't reach it yet (it needs
+   the EKS cluster to already exist, which it won't on the very first CI
+   run before step 4 above).
+
+7. Trigger one Step Functions execution manually to verify:
+     aws stepfunctions start-execution --state-machine-arn <arn> --name test-1
+   Watch it through to NotifySuccess. If everything in §4-§5 was applied
+   correctly up front, this should succeed on the first real try.
+
+8. Verify data landed: aws glue get-tables --database-name
+   yt_pipeline_curated_db (expect curated_statistics, curated_reference_data)
+   and yt_pipeline_enriched_db (expect trending_analytics, channel_analytics,
+   category_analytics); spot-check row counts via Athena.
+
+9. If QuickSight is in scope: confirm the account subscription (see §2c),
+   apply module.quicksight, trigger SPICE ingestion for each dataset
+   (aws quicksight create-ingestion), then build the actual dashboard
+   visuals via `aws quicksight create-dashboard --definition file://...`
+   (see scripts/quicksight_dashboard.json for a working KPI+chart layout to
+   start from) — NOT via Terraform's aws_quicksight_dashboard resource,
+   that JSON is content/layout, not infrastructure, and iterates far faster
+   against the API directly.
+
+================================================================================
+7. THINGS THAT ARE INTENTIONALLY MANUAL / OUTSIDE TERRAFORM (don't try to
+   automate these, it's a deliberate choice each time)
+================================================================================
+- k8s/argocd/application.yaml — applied once via kubectl, not Terraform
+  (the CRD doesn't exist yet on the same apply that installs ArgoCD itself)
+- QuickSight account subscription — one-time console signup, edition +
+  notification email choice can't be cleanly scripted
+- QuickSight dashboard/analysis visual layout — built via AWS CLI
+  create-dashboard with a committed JSON definition file, not Terraform
+- dashboard-api-key k8s secret's actual value — generated ad hoc
+  (openssl rand -hex 32), not stored in Terraform state
+
+================================================================================
+8. EVENTBRIDGE / STEP FUNCTIONS — DO NOT CHANGE THIS PATTERN
+================================================================================
+Keep the exact same orchestration shape the original project used: one
+EventBridge rule (rate(1 hour)) targeting one Step Functions state machine,
+which remains the SOLE orchestrator (every step a Task with Retry/Catch,
+SNS on failure). Only the states INSIDE the machine changed (3 states now
+instead of ~8, since dbt build subsumes what used to be 3 separate Glue/DQ
+steps) — never restructure the EventBridge->StepFunctions relationship
+itself without being asked to.

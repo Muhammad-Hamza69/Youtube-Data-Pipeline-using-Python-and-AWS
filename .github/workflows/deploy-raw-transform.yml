@@ -11,6 +11,7 @@ on:
       - "lambdas/raw_transform/**"
       - "terraform/modules/lambda-transform/**"
       - "terraform/modules/iam-transform/**"
+  workflow_dispatch: {}
 
 permissions:
   id-token: write

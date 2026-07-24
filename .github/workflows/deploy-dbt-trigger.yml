@@ -11,6 +11,7 @@ on:
       - "lambdas/dbt_trigger/**"
       - "terraform/modules/lambda-dbt-trigger/**"
       - "terraform/modules/iam-dbt-trigger/**"
+  workflow_dispatch: {}
 
 permissions:
   id-token: write
