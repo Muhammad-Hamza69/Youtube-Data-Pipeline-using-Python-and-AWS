@@ -21,7 +21,7 @@ spec:
       serviceAccountName: dashboard-sa
       containers:
         - name: dashboard
-          image: 300617413029.dkr.ecr.us-east-1.amazonaws.com/yt-dashboard:2432ffa6da4824bf8a75e0660234517863dbdd6d
+          image: 300617413029.dkr.ecr.us-east-1.amazonaws.com/yt-dashboard:a50dec30426e6adb71a98d92595f35a39ec4d83f
           ports:
             - containerPort: 8080
           env:
